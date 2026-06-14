@@ -9,7 +9,6 @@ import subprocess
 import shutil
 import zipfile
 import unicodedata
-import time
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -238,49 +237,28 @@ def guardar_json(path: Path, data: dict):
 
 
 
-
 def limpiar_bloque_codigo(texto: str) -> str:
-    """
-    Limpia contenido que puede venir desde stdout de OpenCode o desde un .ahk temporal.
-
-    Python se encarga de:
-    - Quitar fences markdown.
-    - Quitar marcadores de inicio/fin.
-    - Preservar solo el código AHK.
-    """
     if not texto:
         return ""
 
-    lineas_limpias = []
+    lineas = texto.strip().splitlines()
 
-    for linea in texto.replace("\r\n", "\n").replace("\r", "\n").splitlines():
-        linea_strip = linea.strip()
+    if lineas and lineas[0].strip().startswith("```"):
+        lineas = lineas[1:]
 
-        if linea_strip.startswith("```"):
-            continue
+    if lineas and lineas[-1].strip() == "```":
+        lineas = lineas[:-1]
 
-        if re.match(r"^---\s*INICIO\s+SCRIPT\s+(AUTOHOTKEY|AHK)\s*---$", linea_strip, re.IGNORECASE):
-            continue
-
-        if re.match(r"^---\s*FIN\s+SCRIPT\s+(AUTOHOTKEY|AHK)\s*---$", linea_strip, re.IGNORECASE):
-            continue
-
-        lineas_limpias.append(linea.rstrip())
-
-    return "\n".join(lineas_limpias).strip()
+    return "\n".join(lineas).strip()
 
 
 def extraer_script_ahk(respuesta: str):
-    """
-    Extrae código AHK desde la respuesta de OpenCode si viene entre marcadores.
-    Si no hay marcadores, solo acepta el texto si parece ser un script AHK.
-    """
     if not respuesta:
         return None
 
     patrones = [
-        r"---\s*INICIO\s+SCRIPT\s+AUTOHOTKEY\s*---(.*?)---\s*FIN\s+SCRIPT\s+AUTOHOTKEY\s*---",
-        r"---\s*INICIO\s+SCRIPT\s+AHK\s*---(.*?)---\s*FIN\s+SCRIPT\s+AHK\s*---",
+        r"---\s*INICIO SCRIPT AUTOHOTKEY\s*---(.*?)---\s*FIN SCRIPT AUTOHOTKEY\s*---",
+        r"---\s*INICIO SCRIPT AHK\s*---(.*?)---\s*FIN SCRIPT AHK\s*---",
     ]
 
     for patron in patrones:
@@ -289,234 +267,61 @@ def extraer_script_ahk(respuesta: str):
             script = limpiar_bloque_codigo(match.group(1))
             return script if script else None
 
-    limpio = limpiar_bloque_codigo(respuesta)
-
-    lineas = [linea.strip() for linea in limpio.splitlines() if linea.strip()]
-    if not lineas:
-        return None
-
-    indicadores_ahk = (
-        "#SingleInstance",
-        "#NoEnv",
-        "SendMode",
-        "SetKeyDelay",
-        "WinTitle",
-        "WinWait",
-        "WinActivate",
-        "Send,",
-    )
-
-    if lineas[0].startswith(indicadores_ahk):
-        return limpio
-
     return None
 
 
-def limpiar_archivos_temporales_opencode(run_outputs_dir: Path | None = None, final_ahk_path: Path | None = None) -> None:
-    """
-    Limpia archivos temporales creados por OpenCode sin borrar los AHK finales.
 
-    Puede borrar:
+def limpiar_archivos_temporales_opencode() -> None:
+    """
+    OpenCode a veces crea archivos directamente en BASE_DIR, por ejemplo:
     - homologacion.ahk
-    - script_homologacion.ahk
-    - *_script.ahk
     - destino_datos.txt
-    """
-    final_resolved = None
-    if final_ahk_path:
-        try:
-            final_resolved = final_ahk_path.resolve()
-        except Exception:
-            final_resolved = None
 
-    archivos = [
+    Los borramos antes de cada PDF para evitar reutilizar archivos viejos.
+    """
+    candidatos = [
         BASE_DIR / "homologacion.ahk",
         BASE_DIR / "script_homologacion.ahk",
         BASE_DIR / "destino_datos.txt",
     ]
 
-    # En BASE_DIR, todo .ahk se considera temporal.
-    archivos.extend([p for p in BASE_DIR.glob("*.ahk") if p.is_file()])
-
-    # En la carpeta del lote, solo borrar temporales genéricos o *_script.ahk.
-    if run_outputs_dir:
-        for p in run_outputs_dir.glob("*.ahk"):
-            nombre = p.name.lower()
-            if (
-                nombre in {"homologacion.ahk", "script_homologacion.ahk"}
-                or nombre.endswith("_script.ahk")
-            ):
-                archivos.append(p)
-
-    for archivo in archivos:
+    for path in candidatos:
         try:
-            if not archivo.exists() or not archivo.is_file():
-                continue
-
-            if final_resolved and archivo.resolve() == final_resolved:
-                continue
-
-            archivo.unlink()
+            if path.exists() and path.is_file():
+                path.unlink()
         except Exception:
             pass
 
 
-def buscar_ahk_creado_por_opencode(
-    run_outputs_dir: Path | None = None,
-    min_mtime: float = 0.0,
-    final_ahk_path: Path | None = None,
-):
+def buscar_ahk_creado_por_opencode():
     """
-    Busca cualquier .ahk creado por OpenCode después de iniciar la ejecución.
-
-    No importa cómo lo haya llamado OpenCode.
-    Python lo renombrará con el nombre exacto del PDF.
+    Busca archivos .ahk que OpenCode haya creado directamente en BASE_DIR.
     """
-    final_resolved = None
-    if final_ahk_path:
-        try:
-            final_resolved = final_ahk_path.resolve()
-        except Exception:
-            final_resolved = None
+    candidatos = [
+        BASE_DIR / "homologacion.ahk",
+        BASE_DIR / "script_homologacion.ahk",
+    ]
 
-    candidatos = []
+    for path in candidatos:
+        if path.exists() and path.is_file():
+            return path
 
-    carpetas = [BASE_DIR]
-    if run_outputs_dir:
-        carpetas.append(run_outputs_dir)
-
-    for carpeta in carpetas:
-        for archivo in carpeta.glob("*.ahk"):
-            try:
-                if not archivo.is_file():
-                    continue
-
-                if final_resolved and archivo.resolve() == final_resolved:
-                    continue
-
-                if archivo.stat().st_mtime < min_mtime:
-                    continue
-
-                candidatos.append(archivo)
-            except Exception:
-                continue
-
-    candidatos = sorted(
-        candidatos,
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-
-    return candidatos[0] if candidatos else None
+    return None
 
 
 def normalizar_contenido_ahk(contenido: str) -> str:
     """
-    Devuelve solo código AHK limpio, sin marcadores ni fences.
+    Si el archivo trae marcadores, extrae solo el contenido interno.
+    Si no trae marcadores, limpia fences markdown y devuelve el texto.
     """
-    if not contenido:
-        return ""
-
     extraido = extraer_script_ahk(contenido)
-
     if extraido:
-        return limpiar_bloque_codigo(extraido).strip()
+        return extraido.strip()
 
     return limpiar_bloque_codigo(contenido).strip()
 
-def obtener_modelos_opencode(refresh: bool = False):
-    """
-    Lista modelos disponibles usando:
-    opencode models
-    opencode models --refresh
 
-    Devuelve modelos en formato provider/model.
-    """
-    opencode_path = shutil.which("opencode")
-
-    if not opencode_path:
-        return {
-            "ok": False,
-            "models": [],
-            "error": "No se encontró opencode en el PATH.",
-            "raw": "",
-        }
-
-    comando = [opencode_path, "models"]
-
-    if refresh:
-        comando.append("--refresh")
-
-    try:
-        proceso = subprocess.run(
-            comando,
-            cwd=str(BASE_DIR),
-            capture_output=True,
-            text=True,
-            timeout=180,
-        )
-
-        salida = quitar_ansi((proceso.stdout or "") + "\n" + (proceso.stderr or ""))
-
-        candidatos = re.findall(
-            r"\b[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.:/@+-]+\b",
-            salida,
-        )
-
-        modelos = []
-
-        for modelo in candidatos:
-            modelo = modelo.strip()
-
-            if modelo.startswith("http"):
-                continue
-
-            if modelo not in modelos:
-                modelos.append(modelo)
-
-        modelos = sorted(modelos)
-
-        return {
-            "ok": proceso.returncode == 0,
-            "models": modelos,
-            "error": "" if proceso.returncode == 0 else salida,
-            "raw": salida,
-        }
-
-    except Exception as e:
-        return {
-            "ok": False,
-            "models": [],
-            "error": str(e),
-            "raw": "",
-        }
-
-
-def nombre_ahk_desde_pdf(nombre_pdf: str) -> str:
-    """
-    El AHK final se llama exactamente igual que el PDF,
-    cambiando únicamente la extensión por .ahk.
-    """
-    return f"{Path(nombre_pdf).stem}.ahk"
-
-
-def validar_contenido_ahk_final(contenido: str):
-    """
-    Valida que el archivo final no conserve marcadores de OpenCode.
-    """
-    if not contenido or not contenido.strip():
-        return False, "El contenido AHK está vacío."
-
-    if re.search(r"---\s*INICIO\s+SCRIPT\s+(AUTOHOTKEY|AHK)\s*---", contenido, re.IGNORECASE):
-        return False, "El AHK todavía contiene marcador de inicio."
-
-    if re.search(r"---\s*FIN\s+SCRIPT\s+(AUTOHOTKEY|AHK)\s*---", contenido, re.IGNORECASE):
-        return False, "El AHK todavía contiene marcador de fin."
-
-    return True, ""
-
-
-def ejecutar_opencode(prompt: str, txt_path: Path, modelo_opencode: str = ''):
+def ejecutar_opencode(prompt: str, txt_path: Path):
     opencode_path = shutil.which("opencode")
 
     if not opencode_path:
@@ -535,16 +340,10 @@ def ejecutar_opencode(prompt: str, txt_path: Path, modelo_opencode: str = ''):
         comando = [
             opencode_path,
             "run",
-        ]
-
-        if modelo_opencode and modelo_opencode.strip():
-            comando.extend(["--model", modelo_opencode.strip()])
-
-        comando.extend([
             prompt,
             "--file",
             str(txt_path),
-        ])
+        ]
 
         proceso = subprocess.run(
             comando,
@@ -622,35 +421,22 @@ def guardar_csv_resumen(path: Path, filas: list):
 
 
 
-
-def crear_zip_ahk(run_outputs_dir: Path, filas: list | None = None):
+def crear_zip_ahk(run_outputs_dir: Path):
     """
-    Crea un ZIP solamente con los AHK finales registrados en la tabla.
-    No incluye temporales generados por OpenCode.
+    Crea un ZIP con todos los archivos .ahk generados en la carpeta del lote.
+    Devuelve:
+    - ruta del ZIP
+    - lista de archivos AHK incluidos
     """
-    ahk_files = []
+    nombres_genericos = {
+        "homologacion.ahk",
+        "script_homologacion.ahk",
+    }
 
-    if filas:
-        for fila in filas:
-            ruta = fila.get("Archivo AHK")
-            if not ruta or ruta == "No generado":
-                continue
-
-            archivo = Path(ruta)
-
-            if archivo.exists() and archivo.is_file():
-                ahk_files.append(archivo)
-    else:
-        ahk_files = sorted(
-            p for p in run_outputs_dir.glob("*.ahk")
-            if (
-                p.is_file()
-                and p.name.lower() not in {"homologacion.ahk", "script_homologacion.ahk"}
-                and not p.name.lower().endswith("_script.ahk")
-            )
-        )
-
-    ahk_files = sorted(set(ahk_files), key=lambda p: p.name.lower())
+    ahk_files = sorted(
+        p for p in run_outputs_dir.glob("*.ahk")
+        if p.is_file() and p.name.lower() not in nombres_genericos
+    )
 
     if not ahk_files:
         return None, []
@@ -666,7 +452,8 @@ def crear_zip_ahk(run_outputs_dir: Path, filas: list | None = None):
 
     return zip_path, ahk_files
 
-def procesar_pdf(uploaded_file, prompt_pregrado: str, prompt_posgrado: str, modelo_opencode: str, run_uploads_dir: Path, run_outputs_dir: Path):
+
+def procesar_pdf(uploaded_file, prompt_pregrado: str, prompt_posgrado: str, run_uploads_dir: Path, run_outputs_dir: Path):
     nombre_seguro = sanitizar_nombre_archivo(uploaded_file.name)
     pdf_path = run_uploads_dir / nombre_seguro
 
@@ -679,14 +466,13 @@ def procesar_pdf(uploaded_file, prompt_pregrado: str, prompt_posgrado: str, mode
     llmwhisperer_json_path = run_outputs_dir / f"{stem}_llmwhisperer_raw.json"
     opencode_txt_path = run_outputs_dir / f"{stem}_opencode.txt"
     opencode_json_path = run_outputs_dir / f"{stem}_opencode.json"
-    ahk_path = run_outputs_dir / nombre_ahk_desde_pdf(nombre_seguro)
+    ahk_path = run_outputs_dir / f"{stem}.ahk"
 
     fila = {
         "Archivo": nombre_seguro,
         "Estado": "Iniciado",
         "Nivel": "",
         "Prompt usado": "",
-        "Modelo OpenCode": modelo_opencode or "Default OpenCode",
         "Nombre": "",
         "Programa al que aspira": "",
         "Plan": "",
@@ -721,10 +507,9 @@ def procesar_pdf(uploaded_file, prompt_pregrado: str, prompt_posgrado: str, mode
 
     fila["TXT LLMWhisperer"] = str(txt_path)
 
-    limpiar_archivos_temporales_opencode(run_outputs_dir=run_outputs_dir, final_ahk_path=ahk_path)
+    limpiar_archivos_temporales_opencode()
 
-    inicio_opencode = time.time()
-    resultado_opencode = ejecutar_opencode(prompt=prompt_usado, txt_path=txt_path, modelo_opencode=modelo_opencode)
+    resultado_opencode = ejecutar_opencode(prompt=prompt_usado, txt_path=txt_path)
     guardar_json(opencode_json_path, resultado_opencode)
 
     respuesta = resultado_opencode.get("stdout", "")
@@ -737,32 +522,18 @@ def procesar_pdf(uploaded_file, prompt_pregrado: str, prompt_posgrado: str, mode
     script_ahk = extraer_script_ahk(respuesta)
 
     if not script_ahk:
-        ahk_generado = buscar_ahk_creado_por_opencode(
-            run_outputs_dir=run_outputs_dir,
-            min_mtime=inicio_opencode,
-            final_ahk_path=ahk_path,
-        )
-
+        ahk_generado = buscar_ahk_creado_por_opencode()
         if ahk_generado:
             contenido_ahk_generado = ahk_generado.read_text(encoding="utf-8", errors="ignore")
             script_ahk = normalizar_contenido_ahk(contenido_ahk_generado)
 
     if script_ahk:
-        script_ahk_final = normalizar_contenido_ahk(script_ahk)
-        es_valido, error_validacion = validar_contenido_ahk_final(script_ahk_final)
+        with open(ahk_path, "w", encoding="utf-8") as f:
+            f.write(script_ahk.strip() + "\n")
 
-        if es_valido:
-            with open(ahk_path, "w", encoding="utf-8") as f:
-                f.write(script_ahk_final.strip() + "\n")
-
-            fila["Archivo AHK"] = str(ahk_path)
-        else:
-            fila["Archivo AHK"] = "No generado"
-            fila["Error"] = error_validacion
+        fila["Archivo AHK"] = str(ahk_path)
     else:
         fila["Archivo AHK"] = "No generado"
-
-    limpiar_archivos_temporales_opencode(run_outputs_dir=run_outputs_dir, final_ahk_path=ahk_path)
 
     if not resultado_opencode.get("ok"):
         fila["Estado"] = "Error OpenCode"
@@ -842,56 +613,7 @@ with col_guardar_1:
 with col_guardar_2:
     st.caption(f"Los prompts se guardan en: {PROMPTS_DIR}")
 
-st.header("2. Seleccionar modelo de OpenCode")
-
-if "modelos_opencode_resultado" not in st.session_state:
-    st.session_state.modelos_opencode_resultado = obtener_modelos_opencode(refresh=False)
-
-col_modelo_1, col_modelo_2 = st.columns([1, 3])
-
-with col_modelo_1:
-    if st.button("🔄 Actualizar modelos"):
-        with st.spinner("Consultando modelos con opencode models --refresh..."):
-            st.session_state.modelos_opencode_resultado = obtener_modelos_opencode(refresh=True)
-
-modelos_resultado = st.session_state.modelos_opencode_resultado
-modelos_detectados = modelos_resultado.get("models", [])
-
-opcion_default_modelo = "Usar modelo por defecto de OpenCode"
-
-opciones_modelo = [opcion_default_modelo] + modelos_detectados
-
-modelo_seleccionado_ui = st.selectbox(
-    "Modelo detectado por OpenCode",
-    options=opciones_modelo,
-    index=0,
-)
-
-modelo_manual = st.text_input(
-    "O escribe manualmente un modelo en formato provider/model",
-    value="",
-    placeholder="Ejemplo: opencode/deepseek-v4-flash-free",
-)
-
-if modelo_manual.strip():
-    modelo_opencode = modelo_manual.strip()
-else:
-    modelo_opencode = "" if modelo_seleccionado_ui == opcion_default_modelo else modelo_seleccionado_ui
-
-if modelo_opencode:
-    st.success(f"✅ Modelo seleccionado: {modelo_opencode}")
-else:
-    st.info("Se usará el modelo por defecto de OpenCode.")
-
-if not modelos_resultado.get("ok"):
-    with st.expander("Ver error al listar modelos OpenCode"):
-        st.text_area(
-            "Salida de opencode models",
-            value=modelos_resultado.get("error", "") or modelos_resultado.get("raw", ""),
-            height=200,
-        )
-
-st.header("3. Seleccionar PDFs")
+st.header("2. Seleccionar PDFs")
 
 uploaded_files = st.file_uploader(
     "Selecciona uno o varios archivos PDF",
@@ -906,7 +628,7 @@ if uploaded_files:
         for file in uploaded_files:
             st.write(f"- {file.name} ({len(file.getvalue())} bytes)")
 
-st.header("4. Ejecutar procesamiento completo")
+st.header("3. Ejecutar procesamiento completo")
 
 disabled = not uploaded_files or not prompt_pregrado.strip() or not prompt_posgrado.strip() or not api_keys or not opencode_path
 
@@ -920,16 +642,12 @@ if st.button("🚀 Procesar PDFs con LLMWhisperer + OpenCode", disabled=disabled
 
     prompt_pregrado_path = run_outputs_dir / "prompt_pregrado.txt"
     prompt_posgrado_path = run_outputs_dir / "prompt_posgrado.txt"
-    modelo_opencode_path = run_outputs_dir / "modelo_opencode.txt"
 
     with open(prompt_pregrado_path, "w", encoding="utf-8") as f:
         f.write(prompt_pregrado)
 
     with open(prompt_posgrado_path, "w", encoding="utf-8") as f:
         f.write(prompt_posgrado)
-
-    with open(modelo_opencode_path, "w", encoding="utf-8") as f:
-        f.write(modelo_opencode or "Default OpenCode")
 
     st.info(f"📁 Carpeta de salida del lote: `{run_outputs_dir}`")
 
@@ -950,7 +668,6 @@ if st.button("🚀 Procesar PDFs con LLMWhisperer + OpenCode", disabled=disabled
                 uploaded_file=uploaded_file,
                 prompt_pregrado=prompt_pregrado,
                 prompt_posgrado=prompt_posgrado,
-                modelo_opencode=modelo_opencode,
                 run_uploads_dir=run_uploads_dir,
                 run_outputs_dir=run_outputs_dir,
             )
@@ -960,7 +677,6 @@ if st.button("🚀 Procesar PDFs con LLMWhisperer + OpenCode", disabled=disabled
                 "Estado": "Error inesperado",
                 "Nivel": "",
                 "Prompt usado": "",
-                "Modelo OpenCode": modelo_opencode if "modelo_opencode" in globals() else "",
                 "Nombre": "",
                 "Programa al que aspira": "",
                 "Plan": "",
@@ -978,7 +694,7 @@ if st.button("🚀 Procesar PDFs con LLMWhisperer + OpenCode", disabled=disabled
     resumen_csv_path = run_outputs_dir / "resumen_resultados.csv"
     guardar_csv_resumen(resumen_csv_path, filas)
 
-    zip_ahk_path, archivos_ahk = crear_zip_ahk(run_outputs_dir, filas)
+    zip_ahk_path, archivos_ahk = crear_zip_ahk(run_outputs_dir)
 
     status_placeholder.success("✅ Procesamiento por lote finalizado")
 
@@ -1016,7 +732,6 @@ if st.button("🚀 Procesar PDFs con LLMWhisperer + OpenCode", disabled=disabled
 
     st.write(f"**Prompt Pregrado:** `{prompt_pregrado_path}`")
     st.write(f"**Prompt Posgrado:** `{prompt_posgrado_path}`")
-    st.write(f"**Modelo OpenCode:** `{modelo_opencode_path}`")
     st.write(f"**CSV generado:** `{resumen_csv_path}`")
     st.write(f"**Carpeta completa del lote:** `{run_outputs_dir}`")
 
