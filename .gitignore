@@ -1,1 +1,39 @@
+# Secrets / environment
 .env
+.env.*
+!.env.example
+
+# Python virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Streamlit / generated folders
+.streamlit/secrets.toml
+uploads/
+outputs/
+diagnostic-packages/
+
+# Logs / temp
+*.log
+*.tmp
+*.temp
+
+# Generated files
+*.ahk
+scripts_ahk.zip
+resumen_resultados.csv
+
+# OS files
+.DS_Store
+Thumbs.db
