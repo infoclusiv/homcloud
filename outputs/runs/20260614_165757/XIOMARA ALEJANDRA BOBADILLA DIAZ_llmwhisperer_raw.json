@@ -1,0 +1,1393 @@
+{
+  "ok": true,
+  "api_key_used": 1,
+  "pdf_path": "/home/infoclusiv/llmwhisperer-pdf-parser/uploads/20260614_165757/XIOMARA ALEJANDRA BOBADILLA DIAZ.pdf",
+  "raw_result": {
+    "message": "Whisper operation completed",
+    "status": "processed",
+    "whisper_hash": "266ea6e3|50242da983796be783c910a1b69b1990",
+    "status_code": 200,
+    "extraction": {
+      "confidence_metadata": [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [
+          {
+            "confidence": "0.804",
+            "offset": 1034,
+            "text": "HOMOLOGACIÓN",
+            "width": 163
+          }
+        ],
+        [
+          {
+            "confidence": "0.744",
+            "offset": 352,
+            "text": "Planeta",
+            "width": 31
+          },
+          {
+            "confidence": "0.67",
+            "offset": 387,
+            "text": "Formación",
+            "width": 47
+          }
+        ],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [
+          {
+            "confidence": "0.851",
+            "offset": 1580,
+            "text": "X",
+            "width": 14
+          }
+        ],
+        [
+          {
+            "confidence": "0.898",
+            "offset": 447,
+            "text": "X",
+            "width": 14
+          }
+        ],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [
+          {
+            "confidence": "0.674",
+            "offset": 393,
+            "text": "N",
+            "width": 15
+          }
+        ],
+        [],
+        [],
+        [],
+        [],
+        [
+          {
+            "confidence": "0.828",
+            "offset": 857,
+            "text": "4 3",
+            "width": 25
+          }
+        ],
+        [],
+        [
+          {
+            "confidence": "0.589",
+            "offset": 1636,
+            "text": "4.6",
+            "width": 25
+          }
+        ],
+        [],
+        [],
+        [
+          {
+            "confidence": "0.65",
+            "offset": 856,
+            "text": "4 4",
+            "width": 26
+          }
+        ],
+        [
+          {
+            "confidence": "0.66",
+            "offset": 856,
+            "text": "4.8",
+            "width": 27
+          },
+          {
+            "confidence": "0.769",
+            "offset": 1082,
+            "text": "CÁTEDRA",
+            "width": 74
+          },
+          {
+            "confidence": "0.7",
+            "offset": 1635,
+            "text": "4.8",
+            "width": 27
+          }
+        ],
+        [
+          {
+            "confidence": "0.835",
+            "offset": 571,
+            "text": "I",
+            "width": 6
+          }
+        ],
+        [
+          {
+            "confidence": "0.703",
+            "offset": 857,
+            "text": "4.7",
+            "width": 23
+          },
+          {
+            "confidence": "0.673",
+            "offset": 1636,
+            "text": "4 7",
+            "width": 24
+          }
+        ],
+        [],
+        [],
+        [],
+        [],
+        [
+          {
+            "confidence": "0.648",
+            "offset": 1636,
+            "text": "4.3",
+            "width": 24
+          }
+        ],
+        [],
+        [],
+        [
+          {
+            "confidence": "0.654",
+            "offset": 859,
+            "text": "4.1",
+            "width": 23
+          }
+        ],
+        [],
+        [],
+        [],
+        [
+          {
+            "confidence": "0.675",
+            "offset": 856,
+            "text": "3 8",
+            "width": 31
+          },
+          {
+            "confidence": "0.797",
+            "offset": 1636,
+            "text": "3.8",
+            "width": 28
+          }
+        ],
+        [],
+        [
+          {
+            "confidence": "0.685",
+            "offset": 857,
+            "text": "4.5",
+            "width": 26
+          },
+          {
+            "confidence": "0.825",
+            "offset": 1510,
+            "text": "3",
+            "width": 8
+          },
+          {
+            "confidence": "0.667",
+            "offset": 1639,
+            "text": "4.5",
+            "width": 23
+          }
+        ],
+        [],
+        [
+          {
+            "confidence": "0.61",
+            "offset": 448,
+            "text": "INGLÉS",
+            "width": 55
+          },
+          {
+            "confidence": "0.703",
+            "offset": 1083,
+            "text": "INGLÉS",
+            "width": 56
+          }
+        ],
+        [],
+        [
+          {
+            "confidence": "0.89",
+            "offset": 859,
+            "text": "4 6",
+            "width": 26
+          }
+        ],
+        [
+          {
+            "confidence": "0.736",
+            "offset": 1230,
+            "text": "GESTIÓN",
+            "width": 63
+          },
+          {
+            "confidence": "0.704",
+            "offset": 1507,
+            "text": "w",
+            "width": 0
+          }
+        ],
+        [],
+        [
+          {
+            "confidence": "0.782",
+            "offset": 859,
+            "text": "3.6",
+            "width": 26
+          },
+          {
+            "confidence": "0.548",
+            "offset": 1509,
+            "text": "3",
+            "width": 9
+          }
+        ],
+        [
+          {
+            "confidence": "0.631",
+            "offset": 859,
+            "text": "3.6",
+            "width": 25
+          }
+        ],
+        [
+          {
+            "confidence": "0.632",
+            "offset": 758,
+            "text": "CRÉDITOS",
+            "width": 86
+          }
+        ],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [
+          {
+            "confidence": "0.702",
+            "offset": 914,
+            "text": "GESTIÓN",
+            "width": 65
+          }
+        ],
+        [],
+        [
+          {
+            "confidence": "0.541",
+            "offset": 970,
+            "text": "INGLÉS",
+            "width": 55
+          }
+        ],
+        [],
+        [],
+        [
+          {
+            "confidence": "0.792",
+            "offset": 813,
+            "text": "ÉNFASIS",
+            "width": 62
+          },
+          {
+            "confidence": "0.558",
+            "offset": 1007,
+            "text": "PLANEACIÓN",
+            "width": 96
+          }
+        ],
+        [
+          {
+            "confidence": "0.663",
+            "offset": 1579,
+            "text": "0",
+            "width": 8
+          }
+        ],
+        [
+          {
+            "confidence": "0.632",
+            "offset": 1579,
+            "text": "0",
+            "width": 9
+          }
+        ],
+        [],
+        [
+          {
+            "confidence": "0.772",
+            "offset": 851,
+            "text": "PLANEACIÓN",
+            "width": 98
+          }
+        ],
+        [
+          {
+            "confidence": "0.782",
+            "offset": 1579,
+            "text": "3",
+            "width": 6
+          }
+        ],
+        [
+          {
+            "confidence": "0.861",
+            "offset": 976,
+            "text": "INGLÉS",
+            "width": 54
+          }
+        ],
+        [],
+        [
+          {
+            "confidence": "0.647",
+            "offset": 263,
+            "text": "8",
+            "width": 9
+          }
+        ],
+        [
+          {
+            "confidence": "0.766",
+            "offset": 714,
+            "text": "ÉNFASIS",
+            "width": 61
+          }
+        ],
+        [
+          {
+            "confidence": "0.802",
+            "offset": 769,
+            "text": "ÉNFASIS",
+            "width": 61
+          },
+          {
+            "confidence": "0.667",
+            "offset": 1578,
+            "text": "0",
+            "width": 10
+          }
+        ],
+        [
+          {
+            "confidence": "0.665",
+            "offset": 967,
+            "text": "INGLÉS",
+            "width": 57
+          }
+        ],
+        [],
+        [],
+        [],
+        [
+          {
+            "confidence": "0.782",
+            "offset": 1579,
+            "text": "3",
+            "width": 8
+          }
+        ],
+        [
+          {
+            "confidence": "0.635",
+            "offset": 822,
+            "text": "ÉNFASIS",
+            "width": 61
+          },
+          {
+            "confidence": "0.691",
+            "offset": 1578,
+            "text": "0",
+            "width": 9
+          }
+        ],
+        [
+          {
+            "confidence": "0.71",
+            "offset": 1581,
+            "text": "0",
+            "width": 8
+          }
+        ],
+        [
+          {
+            "confidence": "0.613",
+            "offset": 1580,
+            "text": "0",
+            "width": 7
+          }
+        ],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [
+          {
+            "confidence": "0.644",
+            "offset": 425,
+            "text": "día",
+            "width": 23
+          },
+          {
+            "confidence": "0.345",
+            "offset": 652,
+            "text": "año",
+            "width": 28
+          }
+        ],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [
+          {
+            "confidence": "0.696",
+            "offset": 850,
+            "text": "homologación.",
+            "width": 66
+          },
+          {
+            "confidence": "0.549",
+            "offset": 977,
+            "text": "señal",
+            "width": 23
+          },
+          {
+            "confidence": "0.619",
+            "offset": 1018,
+            "text": "aceptación",
+            "width": 49
+          }
+        ],
+        [
+          {
+            "confidence": "0.887",
+            "offset": 250,
+            "text": "homologación",
+            "width": 65
+          },
+          {
+            "confidence": "0.782",
+            "offset": 548,
+            "text": "académicas",
+            "width": 52
+          },
+          {
+            "confidence": "0.87",
+            "offset": 997,
+            "text": "académicas",
+            "width": 53
+          }
+        ],
+        [],
+        [],
+        []
+      ],
+      "line_metadata": [
+        [
+          0,
+          0,
+          0,
+          3368
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          249,
+          23,
+          3368
+        ],
+        [
+          0,
+          264,
+          18,
+          3368
+        ],
+        [
+          0,
+          278,
+          43,
+          3368
+        ],
+        [
+          0,
+          286,
+          24,
+          3368
+        ],
+        [
+          0,
+          307,
+          15,
+          3368
+        ],
+        [
+          0,
+          325,
+          21,
+          3368
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          388,
+          22,
+          3368
+        ],
+        [
+          0,
+          418,
+          21,
+          3368
+        ],
+        [
+          0,
+          445,
+          21,
+          3368
+        ],
+        [
+          0,
+          471,
+          21,
+          3368
+        ],
+        [
+          0,
+          499,
+          21,
+          3368
+        ],
+        [
+          0,
+          526,
+          21,
+          3368
+        ],
+        [
+          0,
+          555,
+          22,
+          3368
+        ],
+        [
+          0,
+          580,
+          19,
+          3368
+        ],
+        [
+          0,
+          609,
+          21,
+          3368
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          682,
+          22,
+          3368
+        ],
+        [
+          0,
+          707,
+          22,
+          3368
+        ],
+        [
+          0,
+          731,
+          21,
+          3368
+        ],
+        [
+          0,
+          756,
+          20,
+          3368
+        ],
+        [
+          0,
+          781,
+          19,
+          3368
+        ],
+        [
+          0,
+          794,
+          20,
+          3368
+        ],
+        [
+          0,
+          808,
+          19,
+          3368
+        ],
+        [
+          0,
+          833,
+          22,
+          3368
+        ],
+        [
+          0,
+          856,
+          21,
+          3368
+        ],
+        [
+          0,
+          884,
+          20,
+          3368
+        ],
+        [
+          0,
+          910,
+          22,
+          3368
+        ],
+        [
+          0,
+          936,
+          21,
+          3368
+        ],
+        [
+          0,
+          956,
+          17,
+          3368
+        ],
+        [
+          0,
+          963,
+          22,
+          3368
+        ],
+        [
+          0,
+          987,
+          21,
+          3368
+        ],
+        [
+          0,
+          1014,
+          22,
+          3368
+        ],
+        [
+          0,
+          1041,
+          22,
+          3368
+        ],
+        [
+          0,
+          1067,
+          23,
+          3368
+        ],
+        [
+          0,
+          1088,
+          21,
+          3368
+        ],
+        [
+          0,
+          1101,
+          22,
+          3368
+        ],
+        [
+          0,
+          1109,
+          20,
+          3368
+        ],
+        [
+          0,
+          1132,
+          23,
+          3368
+        ],
+        [
+          0,
+          1159,
+          22,
+          3368
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          1200,
+          22,
+          3368
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          1241,
+          22,
+          3368
+        ],
+        [
+          0,
+          1268,
+          22,
+          3368
+        ],
+        [
+          0,
+          1293,
+          21,
+          3368
+        ],
+        [
+          0,
+          1317,
+          22,
+          3368
+        ],
+        [
+          0,
+          1344,
+          21,
+          3368
+        ],
+        [
+          0,
+          1372,
+          22,
+          3368
+        ],
+        [
+          0,
+          1397,
+          20,
+          3368
+        ],
+        [
+          0,
+          1423,
+          21,
+          3368
+        ],
+        [
+          0,
+          1448,
+          22,
+          3368
+        ],
+        [
+          0,
+          1475,
+          23,
+          3368
+        ],
+        [
+          0,
+          1499,
+          23,
+          3368
+        ],
+        [
+          0,
+          1525,
+          22,
+          3368
+        ],
+        [
+          0,
+          1552,
+          22,
+          3368
+        ],
+        [
+          0,
+          1579,
+          20,
+          3368
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          1627,
+          22,
+          3368
+        ],
+        [
+          0,
+          1651,
+          20,
+          3368
+        ],
+        [
+          0,
+          1679,
+          18,
+          3368
+        ],
+        [
+          0,
+          1688,
+          22,
+          3368
+        ],
+        [
+          0,
+          1702,
+          18,
+          3368
+        ],
+        [
+          0,
+          1723,
+          21,
+          3368
+        ],
+        [
+          0,
+          1745,
+          19,
+          3368
+        ],
+        [
+          0,
+          1771,
+          20,
+          3368
+        ],
+        [
+          0,
+          1794,
+          21,
+          3368
+        ],
+        [
+          0,
+          1820,
+          18,
+          3368
+        ],
+        [
+          0,
+          1845,
+          18,
+          3368
+        ],
+        [
+          0,
+          1868,
+          18,
+          3368
+        ],
+        [
+          0,
+          1891,
+          17,
+          3368
+        ],
+        [
+          0,
+          1913,
+          18,
+          3368
+        ],
+        [
+          0,
+          1936,
+          17,
+          3368
+        ],
+        [
+          0,
+          1959,
+          19,
+          3368
+        ],
+        [
+          0,
+          1983,
+          20,
+          3368
+        ],
+        [
+          0,
+          2005,
+          21,
+          3368
+        ],
+        [
+          0,
+          2029,
+          19,
+          3368
+        ],
+        [
+          0,
+          2056,
+          19,
+          3368
+        ],
+        [
+          0,
+          2076,
+          20,
+          3368
+        ],
+        [
+          0,
+          2102,
+          19,
+          3368
+        ],
+        [
+          0,
+          2127,
+          19,
+          3368
+        ],
+        [
+          0,
+          2152,
+          21,
+          3368
+        ],
+        [
+          0,
+          2180,
+          20,
+          3368
+        ],
+        [
+          0,
+          2204,
+          21,
+          3368
+        ],
+        [
+          0,
+          2224,
+          20,
+          3368
+        ],
+        [
+          0,
+          2252,
+          21,
+          3368
+        ],
+        [
+          0,
+          2276,
+          17,
+          3368
+        ],
+        [
+          0,
+          2299,
+          19,
+          3368
+        ],
+        [
+          0,
+          2322,
+          18,
+          3368
+        ],
+        [
+          0,
+          2344,
+          19,
+          3368
+        ],
+        [
+          0,
+          2368,
+          20,
+          3368
+        ],
+        [
+          0,
+          2389,
+          21,
+          3368
+        ],
+        [
+          0,
+          2413,
+          22,
+          3368
+        ],
+        [
+          0,
+          2437,
+          20,
+          3368
+        ],
+        [
+          0,
+          2459,
+          21,
+          3368
+        ],
+        [
+          0,
+          2482,
+          20,
+          3368
+        ],
+        [
+          0,
+          2503,
+          14,
+          3368
+        ],
+        [
+          0,
+          2512,
+          22,
+          3368
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          2566,
+          21,
+          3368
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          2646,
+          23,
+          3368
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          2807,
+          24,
+          3368
+        ],
+        [
+          0,
+          2837,
+          24,
+          3368
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          2983,
+          24,
+          3368
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          3029,
+          18,
+          3368
+        ],
+        [
+          0,
+          3043,
+          18,
+          3368
+        ],
+        [
+          0,
+          3058,
+          17,
+          3368
+        ],
+        [
+          0,
+          3072,
+          17,
+          3368
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      "metadata": {
+        "0": {
+          "font_info": {
+            "average_char_height": 18.16073479733395,
+            "average_char_width": 9.304722028964905,
+            "std_dev_char_height": 2.829856727298376,
+            "std_dev_char_width": 2.3836082590926204
+          },
+          "line_count": 116,
+          "line_end": 116,
+          "line_start": 0,
+          "page_number": 0,
+          "potential_subtitles": [
+            {
+              "page": 0,
+              "position": 2,
+              "section_length": 2,
+              "text": "ADMISIONES, REGISTRO Y CONTROL"
+            },
+            {
+              "page": 0,
+              "position": 4,
+              "section_length": 1,
+              "text": "IBERO"
+            },
+            {
+              "page": 0,
+              "position": 5,
+              "section_length": 3,
+              "text": "ACTA DE HOMOLOGACIÓN"
+            },
+            {
+              "page": 0,
+              "position": 9,
+              "section_length": 2,
+              "text": "Programa"
+            },
+            {
+              "page": 0,
+              "position": 11,
+              "section_length": 1,
+              "text": "Programa al que"
+            },
+            {
+              "page": 0,
+              "position": 12,
+              "section_length": 0,
+              "text": "Nombre del estudiante:"
+            },
+            {
+              "page": 0,
+              "position": 12,
+              "section_length": 2,
+              "text": "XIOMARA"
+            },
+            {
+              "page": 0,
+              "position": 14,
+              "section_length": 4,
+              "text": "Período académico:"
+            },
+            {
+              "page": 0,
+              "position": 19,
+              "section_length": 0,
+              "text": "PROGRAMA DE ORIGEN"
+            },
+            {
+              "page": 0,
+              "position": 19,
+              "section_length": 1,
+              "text": "PROGRAMA DESTINO IBERO"
+            },
+            {
+              "page": 0,
+              "position": 20,
+              "section_length": 0,
+              "text": "CALIF"
+            },
+            {
+              "page": 0,
+              "position": 20,
+              "section_length": 0,
+              "text": "CÓDIGO"
+            },
+            {
+              "page": 0,
+              "position": 20,
+              "section_length": 37,
+              "text": "DENOMINACIÓN"
+            },
+            {
+              "page": 0,
+              "position": 60,
+              "section_length": 3,
+              "text": "ASIGNATURAS PENDIENTES POR CURSAR"
+            },
+            {
+              "page": 0,
+              "position": 63,
+              "section_length": 0,
+              "text": "CÓDIGO"
+            },
+            {
+              "page": 0,
+              "position": 63,
+              "section_length": 31,
+              "text": "DENOMINACIÓN"
+            },
+            {
+              "page": 0,
+              "position": 94,
+              "section_length": 5,
+              "text": "ÉTICA"
+            },
+            {
+              "page": 0,
+              "position": 99,
+              "section_length": 1,
+              "text": "RÉDITOS PENDIENTES"
+            },
+            {
+              "page": 0,
+              "position": 101,
+              "section_length": 1,
+              "text": "OBSERVACIONES"
+            },
+            {
+              "page": 0,
+              "position": 103,
+              "section_length": 1,
+              "text": "Para constancia firman, el día 24 del mes de MAYO del año 2026"
+            },
+            {
+              "page": 0,
+              "position": 105,
+              "section_length": 1,
+              "text": "REGISTRO Y CONTROL"
+            },
+            {
+              "page": 0,
+              "position": 106,
+              "section_length": 0,
+              "text": "Nombre: DANIEL ISAAC ROQUE"
+            },
+            {
+              "page": 0,
+              "position": 106,
+              "section_length": 0,
+              "text": "Nombre: VIVIANA CAROLINA VALDERRAMA L"
+            },
+            {
+              "page": 0,
+              "position": 106,
+              "section_length": 1,
+              "text": "Nombre: Ivonne Castañeda Perdomo"
+            },
+            {
+              "page": 0,
+              "position": 108,
+              "section_length": 4,
+              "text": "Representante Legal del estudiante (menores de edad)"
+            }
+          ]
+        }
+      },
+      "result_text": "\n\n                                                                        ADMISIONES, REGISTRO Y CONTROL                                        Código: \n                                                                                                                                           ARC-FRM-005- \n             IBERO \n                                                                          ACTA DE HOMOLOGACIÓN                                                 V2 \n               Planeta Formación y Universidades \n                                                   Versión: 2                    Fecha de emisión: 10/02/2026                  Página 1 de 1 \n\nPrograma de origen:                                    CONTADURIA PUBLICA VIRTUAL                               Año de egreso: \nInstitución de origen:                                                               IBERO \nPrograma al que aspira: CONTADURIA PUBLICA                                                                                       Plan:    P2 \nNombre del estudiante: XIOMARA ALEJANDRA BOBADILLA DIAZ \nTipo de identificación: C.C:              X      T.I                     No             1006873310               Código ID: 100081913 \nPeríodo académico:                     2026-13                        Convenio: \n  Jornada:        Diurna                Nocturna             Modalidad:     Presencial                  Distancia            Virtual      X \nTransferencia Interna   X                            Transición Curricular \nTransferencia Externa                           Doble Programa (Doble Titulación) \n\n                          PROGRAMA DE ORIGEN                                                        PROGRAMA DESTINO IBERO \n  CÓDIGO      CRED/IH              DENOMINACIÓN                 CALIF        CÓDIGO                DENOMINACIÓN                  CRED         CALIF \n                  2     CATEDRA IBERO PROYECTO DE VIDA            4        TRSV22110    CATEDRA: PLAN DE VIDA                      2             4 \n                  2 N   HABILIDADES DE COMUNICACION II            4        TRSV22160    COMPETENCIAS COMUNICATIVAS                 2            4 \n                  2      DERECHO EMPRESARIAL I                   4.3 \n                                                                           CTPV21100             DERECHO EMPRESARIAL               3            4,6 \n                  2     DERECHO EMPRESARIAL II                   4,6 \n                  3     FUNDAMENTOS DE CONTABILIDAD              4,6       TVE21110     FUNDAMENTOS DE CONTABILIDAD                3            4,6 \n                  2     CALCULO DIFERENCIAL                      4,3       TRSV22210    PENSAMIENTO MATEMÁTICO                     3            4,3 \n                  3     CONTABILIDAD DE OPERACIONES              4,4       CTPV22100    CONTABILIDAD DE OPERACIONES I              3            4,4 \n                  3     FUNDAMENTOS DE ADMINISTRACION            4,6        TVE21100    FUNDAMENTOS DE ADMINISTRACION              3            4.6 \n                  3     FUNDAM DE ECONOM Y MICROECONOM           3,9       TVE21120     FUNDAMENTOS DE ECONOMIA                    3            3,9 \n                                                                                                                                   3            4,4 \n                  2     MATEMÁTICAS BÁSICAS                      4,4       TRSV22220    MATEMÁTICAS BÁSICAS \n                  2      CATEDRA IBERO DIVERSIDAD                4.8       TRSV22100    CÁTEDRA II                                 2            4.8 \n                  2     INVESTIGACION I                           4,9      TRSV22260 COMPETENCIAS INVESTIGATIVAS                   3            4,9 \n                  3 3    CONTAB DE INVERSION Y FINANCIA           4.7      CTPV22120    CONTABILIDAD DE OPERACIONES II             3            4,7 \n                  3     ESTADÍSTICA DESCRIPTIVA                   4,3      TRSV22230    ESTADÍSTICA DESCRIPTIVA                    3            4,3 \n                                                                                        GREENWASHING: PRÁCTICAS QUE DESDIBUJAN \n                  2      GESTION AMBIENTAL                         4       TRSV22340                                               2             4 \n                                                                                        EL DESARROLLO SOSTENIBLE \n                  2      CATEDRA IBERO EMPREND Y EMPRES           4,3      TRSV22120    CÁTEDRA III                                2            4.3 \n                  3      ANALISIS Y DISEÑO ORGANIZACIÓN          3,7       CTPV22130    PENSAMIENTO ESTRATÉGICO                    3            3,7 \n\n                  2     ELECTIVA II INSTITUCIONAL                 4.1      CTPV22320    HABILIDADES GERENCIALES Y NEGOCIACIÓN      2            4,1 \n\n                  2     CATEDRA IBERO INNOVACION                  4,3      TRSV22250    GESTIÓN DIGITAL E INNOVACIÓN               3            4,3 \n                  2      APRENDIZAJE AUTONOMO DIGITAL             4        TRSV22240    COMPETENCIAS DIGITALES                     3             4 \n                  3      INGLÉS I                                3,8       TRSV22280    INGLÉS I                                   3            3.8 \n                  3      INGLÉS II                                5        TRSV22290    INGLÉS II                                  3             5 \n                  3      TRIBUTARIA 1                             4.5      CTPV22170    TRIBUTARIA 1                               3            4.5 \n                  2     MACROECONOMÍA                             4,8       AEV22440    MACROECONOMÍA                              3            4,8 \n                  3      INGLÉS III                                4       TRSV22300    INGLÉS III                                 3             4 \n                  3     TRIBUTARIA 2                             4,3       CTPV22220    TRIBUTARIA 2                               3            4,3 \n                  3      MATEMÁTICA FINANCIERA                    4,6      CTPV22110    MATEMÁTICA FINANCIERA                      3            4,6 \n                  3      CONTABILIDAD DE GESTIÓN 1                4,5      CTPV22150    CONTABILIDAD DE GESTIÓN 1                  w 3          4,5 \n                  3      AUDITORIA FINANCIERA I                   5        CTPV22180    AUDITORIA 1                                3            5 \n                  3      CONTABILIDAD DE GESTION 2                3.6      CTPV22190    CONTABILIDAD DE GESTION 2                  3            3,6 \n                  3      CONTABILIDAD Y COSTOS AMBIENTALES        3.6      CTPV22200    CONTABILIDAD Y COSTOS AMBIENTALES          3            3,6 \n                                              TOTAL DE CRÉDITOS HOMOLOGADOS                                                       84 \n\n                                                          ASIGNATURAS PENDIENTES POR CURSAR \n                                                            RUTA PROYECTADA: \n  PERIODO \n                     CÓDIGO                                               DENOMINACIÓN                                          NÚMERO DE CRÉDITOS \n   CURSO \n      2              TRSV22170                                 ARGUMENTACIÓN Y PRODUCCIÓN DE TEXTOS                                       2 \n      3              AEV22380                                             MICROECONOMÍA                                                   3 \n      4             CTPV21110                                           DERECHO AMBIENTAL                                                 2 \n      4             CTPV21120                                      TEORÍA Y PENSAMIENTO CONTABLE                                          3 \n      4             CTPV22140                                          REPORTES FINANCIEROS                                               3 \n      5             CTPV22160                                          GESTIÓN FINANCIERA CP                                              3 \n      6             CTPV22210                                          GESTION FINANCIERA LP                                              3 \n      6              TRSV22310                                               INGLÉS IV                                                    3 \n      7             CTPV22240                                           AUDITORÍA AMBIENTAL                                               2 \n      7                                                                      ENFASIS I                                                    3 \n      7             CTPV22250                                ÉNFASIS EN TRIBUTARIA: PLANEACIÓN TRIBUTARIA \n      7             CTPV22260                        ÉNFASIS EN CONTABILIDADES ESPECIALES: CONTABILIDAD SECTOR SALUD                      0 \n      7             CTPV22270                       ÉNFASIS EN ASEGURAMIENTO Y CONTROL: AUDITORIA DE CONTROL INTERNO                      0 \n      7             CTPV22230                                               AUDITORIA 2                                                   3 \n      7             CTPV22290                                    PLANEACIÓN Y CONTROL PRESUPUESTAL                                        2 \n      7             CTPV22280                                            FINANZAS APLICADAS                                               3 \n      7             TRSV22320                                                INGLÉS V \n      8                                                                      ENFASIS II                                                   3 \n      8             CTPV22350                               ÉNFASIS EN TRIBUTARIA: PROCEDIMIENTO TRIBUTARIO                               0 \n      8              CTPV22360                     ÉNFASIS EN CONTABILIDADES ESPECIALES: CONTABILIDAD SECTOR SOLIDARIO \n      8             CTPV22370                            ÉNFASIS EN ASEGURAMIENTO Y CONTROL: AUDITORIA FORENSE                            0 \n      8              TRSV22330                                               INGLÉS VI                                                    3 \n      8             CTPV22300                                    CONTABILIDAD Y PRESUPUESTO PÚBLICO                                       3 \n      8             TRSV22270                                         PROCESOS INVESTIGATIVOS                                             3 \n      8             CTPV23100                                            TALLER CONTABLE                                                  3 \n      9                                                                      ENFASIS III                                                  3 \n      9             CTPV22380                                 ÉNFASIS EN TRIBUTARIA: AUDITORIA TRIBUTARIA                                 0 \n      9             CTPV22390                        ÉNFASIS EN CONTABILIDADES ESPECIALES: CONTABILIDAD AGROPECUARIA                      0 \n      9             CTPV22400                  ÉNFASIS EN ASEGURAMIENTO Y CONTROL: AUDITORÍA DE TECNOLOGÍAS DE INFORMACIÓN                0 \n      9             CTPV22410                                             ÉTICA CONTABLE                                                  2 \n      9             CTPV22430                                             REVISORÍA FISCAL                                                2 \n      9             CTPV22420                                             OPCIÓN DE GRADO                                                 3 \n      9              CTPV23110                                               PRACTICA                                                     5 \n                                                                                                                                          68 \nRÉDITOS PENDIENTES \n\n OBSERVACIONES \n\n Para constancia firman, el día 24 del mes de MAYO del año 2026 \n\n                    FACULTAD                                   COORDINADOR (OPCIONAL)                                REGISTRO Y CONTROL \n Nombre: DANIEL ISAAC ROQUE                      Nombre: VIVIANA CAROLINA VALDERRAMA L               Nombre: Ivonne Castañeda Perdomo \n\n Representante Legal del estudiante (menores de edad)                 Estudiante \n\n Se envía el acta digital y si pasados dos (2) días, no se recibe respuesta por parte del aspirante, se da Se envía el acta digital y si pasados dos (2) días, no se recibe respuesta por parte del aspirante, se da por \n por ACEPTADA y FIRMADA su homologación. Firmado en señal de aceptación del presente estudio ACEPTADA y FIRMADA su homologación. Firmado en señal de aceptación del presente estudio de \n   de homologación y como consecuencia me rijo por las condiciones académicas y financieras homologación y como consecuencia me rijo por las condiciones académicas y financieras establecidas en el \n            establecidas en el respectivo Reglamento Estudiantil. respectivo Reglamento Estudiantil. \n<<<\f",
+      "webhook_metadata": "",
+      "whisper_metadata": {
+        "avg_page_processing_time": 4.0,
+        "mode": "high_quality",
+        "processed_page_count": 1,
+        "requested_page_count": 1,
+        "total_page_count": 1
+      }
+    }
+  },
+  "text": "ADMISIONES, REGISTRO Y CONTROL                                        Código: \n                                                                                                                                           ARC-FRM-005- \n             IBERO \n                                                                          ACTA DE HOMOLOGACIÓN                                                 V2 \n               Planeta Formación y Universidades \n                                                   Versión: 2                    Fecha de emisión: 10/02/2026                  Página 1 de 1 \n\nPrograma de origen:                                    CONTADURIA PUBLICA VIRTUAL                               Año de egreso: \nInstitución de origen:                                                               IBERO \nPrograma al que aspira: CONTADURIA PUBLICA                                                                                       Plan:    P2 \nNombre del estudiante: XIOMARA ALEJANDRA BOBADILLA DIAZ \nTipo de identificación: C.C:              X      T.I                     No             1006873310               Código ID: 100081913 \nPeríodo académico:                     2026-13                        Convenio: \n  Jornada:        Diurna                Nocturna             Modalidad:     Presencial                  Distancia            Virtual      X \nTransferencia Interna   X                            Transición Curricular \nTransferencia Externa                           Doble Programa (Doble Titulación) \n\n                          PROGRAMA DE ORIGEN                                                        PROGRAMA DESTINO IBERO \n  CÓDIGO      CRED/IH              DENOMINACIÓN                 CALIF        CÓDIGO                DENOMINACIÓN                  CRED         CALIF \n                  2     CATEDRA IBERO PROYECTO DE VIDA            4        TRSV22110    CATEDRA: PLAN DE VIDA                      2             4 \n                  2 N   HABILIDADES DE COMUNICACION II            4        TRSV22160    COMPETENCIAS COMUNICATIVAS                 2            4 \n                  2      DERECHO EMPRESARIAL I                   4.3 \n                                                                           CTPV21100             DERECHO EMPRESARIAL               3            4,6 \n                  2     DERECHO EMPRESARIAL II                   4,6 \n                  3     FUNDAMENTOS DE CONTABILIDAD              4,6       TVE21110     FUNDAMENTOS DE CONTABILIDAD                3            4,6 \n                  2     CALCULO DIFERENCIAL                      4,3       TRSV22210    PENSAMIENTO MATEMÁTICO                     3            4,3 \n                  3     CONTABILIDAD DE OPERACIONES              4,4       CTPV22100    CONTABILIDAD DE OPERACIONES I              3            4,4 \n                  3     FUNDAMENTOS DE ADMINISTRACION            4,6        TVE21100    FUNDAMENTOS DE ADMINISTRACION              3            4.6 \n                  3     FUNDAM DE ECONOM Y MICROECONOM           3,9       TVE21120     FUNDAMENTOS DE ECONOMIA                    3            3,9 \n                                                                                                                                   3            4,4 \n                  2     MATEMÁTICAS BÁSICAS                      4,4       TRSV22220    MATEMÁTICAS BÁSICAS \n                  2      CATEDRA IBERO DIVERSIDAD                4.8       TRSV22100    CÁTEDRA II                                 2            4.8 \n                  2     INVESTIGACION I                           4,9      TRSV22260 COMPETENCIAS INVESTIGATIVAS                   3            4,9 \n                  3 3    CONTAB DE INVERSION Y FINANCIA           4.7      CTPV22120    CONTABILIDAD DE OPERACIONES II             3            4,7 \n                  3     ESTADÍSTICA DESCRIPTIVA                   4,3      TRSV22230    ESTADÍSTICA DESCRIPTIVA                    3            4,3 \n                                                                                        GREENWASHING: PRÁCTICAS QUE DESDIBUJAN \n                  2      GESTION AMBIENTAL                         4       TRSV22340                                               2             4 \n                                                                                        EL DESARROLLO SOSTENIBLE \n                  2      CATEDRA IBERO EMPREND Y EMPRES           4,3      TRSV22120    CÁTEDRA III                                2            4.3 \n                  3      ANALISIS Y DISEÑO ORGANIZACIÓN          3,7       CTPV22130    PENSAMIENTO ESTRATÉGICO                    3            3,7 \n\n                  2     ELECTIVA II INSTITUCIONAL                 4.1      CTPV22320    HABILIDADES GERENCIALES Y NEGOCIACIÓN      2            4,1 \n\n                  2     CATEDRA IBERO INNOVACION                  4,3      TRSV22250    GESTIÓN DIGITAL E INNOVACIÓN               3            4,3 \n                  2      APRENDIZAJE AUTONOMO DIGITAL             4        TRSV22240    COMPETENCIAS DIGITALES                     3             4 \n                  3      INGLÉS I                                3,8       TRSV22280    INGLÉS I                                   3            3.8 \n                  3      INGLÉS II                                5        TRSV22290    INGLÉS II                                  3             5 \n                  3      TRIBUTARIA 1                             4.5      CTPV22170    TRIBUTARIA 1                               3            4.5 \n                  2     MACROECONOMÍA                             4,8       AEV22440    MACROECONOMÍA                              3            4,8 \n                  3      INGLÉS III                                4       TRSV22300    INGLÉS III                                 3             4 \n                  3     TRIBUTARIA 2                             4,3       CTPV22220    TRIBUTARIA 2                               3            4,3 \n                  3      MATEMÁTICA FINANCIERA                    4,6      CTPV22110    MATEMÁTICA FINANCIERA                      3            4,6 \n                  3      CONTABILIDAD DE GESTIÓN 1                4,5      CTPV22150    CONTABILIDAD DE GESTIÓN 1                  w 3          4,5 \n                  3      AUDITORIA FINANCIERA I                   5        CTPV22180    AUDITORIA 1                                3            5 \n                  3      CONTABILIDAD DE GESTION 2                3.6      CTPV22190    CONTABILIDAD DE GESTION 2                  3            3,6 \n                  3      CONTABILIDAD Y COSTOS AMBIENTALES        3.6      CTPV22200    CONTABILIDAD Y COSTOS AMBIENTALES          3            3,6 \n                                              TOTAL DE CRÉDITOS HOMOLOGADOS                                                       84 \n\n                                                          ASIGNATURAS PENDIENTES POR CURSAR \n                                                            RUTA PROYECTADA: \n  PERIODO \n                     CÓDIGO                                               DENOMINACIÓN                                          NÚMERO DE CRÉDITOS \n   CURSO \n      2              TRSV22170                                 ARGUMENTACIÓN Y PRODUCCIÓN DE TEXTOS                                       2 \n      3              AEV22380                                             MICROECONOMÍA                                                   3 \n      4             CTPV21110                                           DERECHO AMBIENTAL                                                 2 \n      4             CTPV21120                                      TEORÍA Y PENSAMIENTO CONTABLE                                          3 \n      4             CTPV22140                                          REPORTES FINANCIEROS                                               3 \n      5             CTPV22160                                          GESTIÓN FINANCIERA CP                                              3 \n      6             CTPV22210                                          GESTION FINANCIERA LP                                              3 \n      6              TRSV22310                                               INGLÉS IV                                                    3 \n      7             CTPV22240                                           AUDITORÍA AMBIENTAL                                               2 \n      7                                                                      ENFASIS I                                                    3 \n      7             CTPV22250                                ÉNFASIS EN TRIBUTARIA: PLANEACIÓN TRIBUTARIA \n      7             CTPV22260                        ÉNFASIS EN CONTABILIDADES ESPECIALES: CONTABILIDAD SECTOR SALUD                      0 \n      7             CTPV22270                       ÉNFASIS EN ASEGURAMIENTO Y CONTROL: AUDITORIA DE CONTROL INTERNO                      0 \n      7             CTPV22230                                               AUDITORIA 2                                                   3 \n      7             CTPV22290                                    PLANEACIÓN Y CONTROL PRESUPUESTAL                                        2 \n      7             CTPV22280                                            FINANZAS APLICADAS                                               3 \n      7             TRSV22320                                                INGLÉS V \n      8                                                                      ENFASIS II                                                   3 \n      8             CTPV22350                               ÉNFASIS EN TRIBUTARIA: PROCEDIMIENTO TRIBUTARIO                               0 \n      8              CTPV22360                     ÉNFASIS EN CONTABILIDADES ESPECIALES: CONTABILIDAD SECTOR SOLIDARIO \n      8             CTPV22370                            ÉNFASIS EN ASEGURAMIENTO Y CONTROL: AUDITORIA FORENSE                            0 \n      8              TRSV22330                                               INGLÉS VI                                                    3 \n      8             CTPV22300                                    CONTABILIDAD Y PRESUPUESTO PÚBLICO                                       3 \n      8             TRSV22270                                         PROCESOS INVESTIGATIVOS                                             3 \n      8             CTPV23100                                            TALLER CONTABLE                                                  3 \n      9                                                                      ENFASIS III                                                  3 \n      9             CTPV22380                                 ÉNFASIS EN TRIBUTARIA: AUDITORIA TRIBUTARIA                                 0 \n      9             CTPV22390                        ÉNFASIS EN CONTABILIDADES ESPECIALES: CONTABILIDAD AGROPECUARIA                      0 \n      9             CTPV22400                  ÉNFASIS EN ASEGURAMIENTO Y CONTROL: AUDITORÍA DE TECNOLOGÍAS DE INFORMACIÓN                0 \n      9             CTPV22410                                             ÉTICA CONTABLE                                                  2 \n      9             CTPV22430                                             REVISORÍA FISCAL                                                2 \n      9             CTPV22420                                             OPCIÓN DE GRADO                                                 3 \n      9              CTPV23110                                               PRACTICA                                                     5 \n                                                                                                                                          68 \nRÉDITOS PENDIENTES \n\n OBSERVACIONES \n\n Para constancia firman, el día 24 del mes de MAYO del año 2026 \n\n                    FACULTAD                                   COORDINADOR (OPCIONAL)                                REGISTRO Y CONTROL \n Nombre: DANIEL ISAAC ROQUE                      Nombre: VIVIANA CAROLINA VALDERRAMA L               Nombre: Ivonne Castañeda Perdomo \n\n Representante Legal del estudiante (menores de edad)                 Estudiante \n\n Se envía el acta digital y si pasados dos (2) días, no se recibe respuesta por parte del aspirante, se da Se envía el acta digital y si pasados dos (2) días, no se recibe respuesta por parte del aspirante, se da por \n por ACEPTADA y FIRMADA su homologación. Firmado en señal de aceptación del presente estudio ACEPTADA y FIRMADA su homologación. Firmado en señal de aceptación del presente estudio de \n   de homologación y como consecuencia me rijo por las condiciones académicas y financieras homologación y como consecuencia me rijo por las condiciones académicas y financieras establecidas en el \n            establecidas en el respectivo Reglamento Estudiantil. respectivo Reglamento Estudiantil. \n\n--- NUEVA PÁGINA ---"
+}

@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "returncode": 0,
+  "stdout": "NOMBRE_ESTUDIANTE: XIOMARA ALEJANDRA BOBADILLA DIAZ\nPROGRAMA_ASPIRA: CONTADURIA PUBLICA\nPLAN_ESTUDIO: P2\nNOMBRE_PROGRAMA_ORIGEN: CONTADURIA PUBLICA VIRTUAL\nCREDITOS_HOMOLOGADOS: 84\n",
+  "stderr": "\u001b[0m\n> build · deepseek-v4-flash-free\n\u001b[0m\n",
+  "command": [
+    "/home/infoclusiv/.opencode/bin/opencode",
+    "run",
+    "Analiza el archivo adjunto. El documento es un acta de homologación.\n\nDebes responder basándote ÚNICAMENTE en el contenido del archivo.\n\nExtrae los siguientes campos y responde exactamente con este formato:\n\nNOMBRE_ESTUDIANTE:\nPROGRAMA_ASPIRA:\nPLAN_ESTUDIO:\nNOMBRE_PROGRAMA_ORIGEN:\nCREDITOS_HOMOLOGADOS:\n\nReglas:\n- No inventes información.\n- Si un dato no aparece claramente, escribe: No extraído.\n- CREDITOS_HOMOLOGADOS debe ser solo un número entero.\n- No agregues explicación adicional.\n",
+    "--file",
+    "/home/infoclusiv/llmwhisperer-pdf-parser/outputs/XIOMARA ALEJANDRA BOBADILLA DIAZ_llmwhisperer.txt"
+  ]
+}

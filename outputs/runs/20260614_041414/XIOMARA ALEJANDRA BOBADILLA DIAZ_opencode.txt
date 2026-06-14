@@ -1,0 +1,14 @@
+All checks passed:
+- Período académico 2026-13 no contiene 2024
+- Programa "CONTADURIA PUBLICA" no contiene maestria/especializacion/esp
+- Todas las calificaciones son ≥ 3
+
+Procedo a extraer los datos de la sección Programa Destino Ibero y generar los archivos.
+Verificación: el script inicia con `#SingleInstance force` en la línea 2 (luego del marcador `--- INICIO SCRIPT AUTOHOTKEY ---`).
+
+**Nombre de la estudiante:** XIOMARA ALEJANDRA BOBADILLA DIAZ
+
+Resumen de lo generado:
+
+- **`destino_datos.txt`** — 30 registros con 3 columnas (Letras, Números, Calificación)
+- **`homologacion.ahk`** — Script AutoHotkey con 30 líneas `Send,`; la última línea omite `{Down}{Space}{Tab}` tras la `N`.

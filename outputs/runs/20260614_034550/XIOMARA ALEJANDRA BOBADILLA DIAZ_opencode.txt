@@ -1,0 +1,12 @@
+Ambos archivos creados exitosamente en:
+- `outputs/runs/20260614_034550/datos_destino_ibero.txt` (30 registros)
+- `outputs/runs/20260614_034550/script_homologacion.ahk`
+
+El script de AutoHotkey **sí inicia** con `#SingleInstance force`.
+
+**Condiciones validadas:**
+- Periodo académico: **2026-13** → No contiene "2024", OK.
+- Programa: **CONTADURIA PUBLICA** → No contiene "maestria"/"especializacion"/"esp"/"ESP", OK.
+- Calificaciones: **Todas ≥ 3.0** (mínima 3.6), OK.
+
+**Estudiante:** XIOMARA ALEJANDRA BOBADILLA DIAZ
