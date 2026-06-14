@@ -736,59 +736,38 @@ def guardar_csv_resumen(path: Path, filas: list):
 
 
 
-
 def detectar_condicion_parada_opencode(respuesta: str) -> str | None:
     """
-    Detecta condiciones de parada reales.
+    Detecta si OpenCode detuvo el flujo por una condición de negocio:
+    - período 2024
+    - programa de maestría/especialización
+    - calificación inferior a 3
+    - mensaje explícito de ejecución detenida
 
-    Importante:
-    No debe marcar como detenido frases positivas como:
-    - Ninguna inferior a 3
-    - Todas son 4.5
-    - Mínimo 3.2
-    - No contiene 2024
+    Devuelve un resumen corto del motivo o None.
     """
     if not respuesta:
         return None
 
-    lineas_relevantes = []
+    texto_normalizado = quitar_tildes(respuesta).lower()
 
-    marcadores_fuertes = [
+    patrones = [
         "ejecucion detenida",
-        "se detuvo la ejecucion",
-        "detuve la ejecucion",
+        "calificacion inferior a 3",
+        "inferior a 3",
+        "menor a 3",
+        "por debajo de 3",
         "no se genero el script",
         "no se genero el script de autohotkey",
         "no se genero el archivo de datos",
-        "no se genero ningun script",
+        "periodo academico contiene 2024",
+        "periodo contiene 2024",
     ]
 
-    patrones_positivos = [
-        r"se\s+encontro\s+.*calificacion.*(inferior|menor|por debajo)\s+a?\s*3",
-        r"calificacion\s+detectada.*(inferior|menor|por debajo)\s+a?\s*3",
-        r"calificacion.*por\s+debajo\s+de\s+3",
-        r"calificacion.*inferior\s+a\s+3",
-        r"calificacion.*menor\s+a\s+3",
-        r"calificacion\s*=\s*[0-2](?:[\\.,]\\d+)?\\b",
-        r"contiene\s+2024",
-    ]
+    if not any(p in texto_normalizado for p in patrones):
+        return None
 
-    patrones_negativos = [
-        "ninguna inferior a 3",
-        "ninguna menor a 3",
-        "ninguna por debajo de 3",
-        "no hay calificacion inferior",
-        "no hay calificaciones inferiores",
-        "sin calificaciones inferiores",
-        "sin calificacion inferior",
-        "todas son",
-        "todas >= 3",
-        "todas ≥ 3",
-        "minimo 3",
-        "mínimo 3",
-        "no contiene 2024",
-        "ok, no contiene 2024",
-    ]
+    lineas_relevantes = []
 
     for linea in respuesta.splitlines():
         linea_limpia = linea.strip()
@@ -798,30 +777,17 @@ def detectar_condicion_parada_opencode(respuesta: str) -> str | None:
 
         linea_normalizada = quitar_tildes(linea_limpia).lower()
 
-        if any(neg in linea_normalizada for neg in patrones_negativos):
-            continue
-
-        es_condicion = False
-
-        if any(marker in linea_normalizada for marker in marcadores_fuertes):
-            es_condicion = True
-
-        if not es_condicion:
-            for patron in patrones_positivos:
-                if re.search(patron, linea_normalizada, re.IGNORECASE):
-                    es_condicion = True
-                    break
-
-        if es_condicion:
+        if any(p in linea_normalizada for p in patrones):
             lineas_relevantes.append(linea_limpia)
 
         if len(lineas_relevantes) >= 3:
             break
 
-    if not lineas_relevantes:
-        return None
+    if lineas_relevantes:
+        return " | ".join(lineas_relevantes)
 
-    return " | ".join(lineas_relevantes)
+    return "OpenCode detuvo la ejecución por una condición de negocio."
+
 
 def crear_zip_ahk(run_outputs_dir: Path, filas: list | None = None):
     """
