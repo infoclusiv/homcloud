@@ -15,13 +15,6 @@ from queue import Queue, Empty
 from datetime import datetime
 from dotenv import load_dotenv
 
-from ahk_builder import (
-    AhkBuilderError,
-    extraer_json_desde_respuesta,
-    validar_payload_opencode,
-    generar_script_ahk_desde_registros,
-)
-
 from unstract.llmwhisperer import LLMWhispererClientV2
 from unstract.llmwhisperer.client_v2 import LLMWhispererClientException
 
@@ -779,116 +772,6 @@ def guardar_csv_resumen(path: Path, filas: list):
 
 
 
-def construir_prompt_json_opencode(prompt_original: str) -> str:
-    """
-    Convierte cualquier prompt editable del usuario a un contrato técnico estable:
-    OpenCode solo analiza y responde JSON. Python genera archivos.
-    """
-    return f"""CONTRATO TÉCNICO OBLIGATORIO — MODO SOLO JSON
-
-El archivo adjunto es texto extraído de un PDF por LLMWhisperer.
-Tu tarea es analizar el contenido y devolver ÚNICAMENTE un objeto JSON válido.
-
-REGLAS OBLIGATORIAS:
-1. No crees archivos.
-2. No escribas archivos .ahk, .csv, .txt ni ningún otro archivo.
-3. No uses herramientas de escritura.
-4. No generes script AutoHotkey como texto libre.
-5. No uses markdown.
-6. No incluyas explicación antes ni después del JSON.
-7. Aunque el prompt original pida crear archivos o scripts, ignora esa parte: Python generará los archivos.
-8. Debes aplicar las condiciones de parada del prompt original, por ejemplo periodo 2024, programa no permitido o calificaciones inferiores al umbral indicado.
-9. Extrae registros solamente de la sección Programa Destino Ibero o Programa Destino. No incluyas Programa de Origen.
-
-FORMATO JSON EXACTO:
-{{
-  "estado": "ok" o "detenido",
-  "motivo_detencion": "",
-  "estudiante": "",
-  "programa_aspira": "",
-  "periodo_academico": "",
-  "plan_estudio": "",
-  "programa_origen": "",
-  "creditos_homologados": "",
-  "registros": [
-    {{
-      "codigo_original": "",
-      "letras": "",
-      "numeros": "",
-      "calificacion": ""
-    }}
-  ]
-}}
-
-REGLAS PARA EL JSON:
-- Si todo está permitido, usa "estado": "ok" y llena "registros".
-- Si se debe detener, usa "estado": "detenido", explica el motivo en "motivo_detencion" y deja "registros": [].
-- En "letras" coloca solo letras del código.
-- En "numeros" coloca solo números del código.
-- En "calificacion" usa siempre dos decimales como texto, por ejemplo "4.00", "4.20", "3.50".
-- Si un dato no aparece claramente, usa "No extraído".
-- El JSON debe ser parseable con json.loads en Python.
-
-PROMPT ORIGINAL DEL USUARIO:
-{prompt_original}
-"""
-
-
-def obtener_valor_payload(data: dict, claves: list[str], default: str = "No extraído") -> str:
-    for clave in claves:
-        valor = data.get(clave)
-        if valor is None:
-            continue
-
-        valor = str(valor).strip()
-        if valor:
-            return valor
-
-    return default
-
-
-def extraer_datos_payload_opencode(data: dict) -> dict:
-    creditos = obtener_valor_payload(
-        data,
-        ["creditos_homologados", "creditos", "total_creditos"],
-        "0",
-    )
-    creditos_num = re.search(r"\d+", str(creditos))
-    creditos = creditos_num.group(0) if creditos_num else "0"
-
-    return {
-        "Nombre": obtener_valor_payload(data, ["estudiante", "nombre_estudiante", "nombre"]),
-        "Programa al que aspira": obtener_valor_payload(data, ["programa_aspira", "programa_al_que_aspira"]),
-        "Plan": obtener_valor_payload(data, ["plan_estudio", "plan"]),
-        "Programa origen": obtener_valor_payload(data, ["programa_origen", "nombre_programa_origen"]),
-        "Créditos homologados": creditos,
-    }
-
-
-def limpiar_temporales_raiz_proyecto_opencode() -> None:
-    """
-    En la arquitectura nueva OpenCode no debe crear archivos.
-    Si aun así deja basura en la raíz del proyecto, se elimina.
-    """
-    patrones = [
-        "*.ahk",
-        "datos_codigos*.txt",
-        "datos_codigos*.csv",
-        "destino_ibero*.csv",
-        "destino_ibero*.txt",
-        "ingresar_homologaciones*.txt",
-        "ingresar_homologaciones*.csv",
-    ]
-
-    for patron in patrones:
-        for archivo in BASE_DIR.glob(patron):
-            try:
-                if archivo.is_file():
-                    archivo.unlink()
-            except Exception:
-                pass
-
-
 def detectar_condicion_parada_opencode(respuesta: str) -> str | None:
     """
     Detecta condiciones de parada reales.
@@ -1190,10 +1073,8 @@ def procesar_pdf(
     )
 
     inicio_opencode = time.time()
-    prompt_opencode_json = construir_prompt_json_opencode(prompt_usado)
-
     resultado_opencode = ejecutar_opencode(
-        prompt=prompt_opencode_json,
+        prompt=prompt_usado,
         txt_path=txt_path,
         modelo_opencode=modelo_opencode,
         cwd=opencode_work_dir,
@@ -1209,78 +1090,90 @@ def procesar_pdf(
 
     fila["Respuesta OpenCode"] = str(opencode_txt_path)
 
-    if not resultado_opencode.get("ok"):
-        fila["Estado"] = "Error OpenCode"
-        fila["Fase actual"] = "Error OpenCode"
-        fila["Error"] = resultado_opencode.get("stderr") or resultado_opencode.get("error", "")
-        fila["Duración"] = formatear_duracion(time.time() - inicio_pdf)
-        limpiar_temporales_raiz_proyecto_opencode()
-        reportar("Error OpenCode", 1.0, "OpenCode devolvió error. Revisa STDERR o el JSON técnico.")
-        return fila
+    condicion_parada = detectar_condicion_parada_opencode(respuesta)
 
-    reportar("Interpretando JSON", 0.86, "Validando que OpenCode haya respondido solo JSON estructurado.")
-
-    try:
-        payload_opencode = extraer_json_desde_respuesta(respuesta)
-        estado_payload, motivo_detencion, registros_payload = validar_payload_opencode(payload_opencode)
-    except AhkBuilderError as e:
-        fila["Estado"] = "Error JSON OpenCode"
-        fila["Fase actual"] = "Error JSON OpenCode"
-        fila["Archivo AHK"] = "No generado"
-        fila["Error"] = str(e)
-        fila["Duración"] = formatear_duracion(time.time() - inicio_pdf)
-        limpiar_temporales_raiz_proyecto_opencode()
-        reportar("Error JSON OpenCode", 1.0, str(e))
-        return fila
-
-    fila.update(extraer_datos_payload_opencode(payload_opencode))
-
-    if estado_payload == "detenido":
+    if condicion_parada:
         fila["Estado"] = "Detenido por condición"
         fila["Fase actual"] = "Detenido por condición"
         fila["Archivo AHK"] = "No generado"
-        fila["Error"] = motivo_detencion or "OpenCode detuvo la ejecución por una condición de negocio."
+        fila["Error"] = condicion_parada
         fila["Duración"] = formatear_duracion(time.time() - inicio_pdf)
-        limpiar_temporales_raiz_proyecto_opencode()
-        reportar("Detenido por condición", 1.0, fila["Error"])
+
+        limpiar_archivos_temporales_opencode(
+            run_outputs_dir=run_outputs_dir,
+            final_ahk_path=ahk_path,
+            opencode_work_dir=opencode_work_dir,
+        )
+
+        reportar(
+            "Detenido por condición",
+            1.0,
+            condicion_parada,
+        )
+
         return fila
 
-    reportar("Generando AHK con Python", 0.92, "Python generará el script AHK final desde los registros JSON.")
+    reportar("Extrayendo AHK", 0.90, "Buscando el script AHK en la respuesta o en archivos generados por OpenCode.")
 
-    try:
-        script_ahk_final = generar_script_ahk_desde_registros(registros_payload)
+    ahk_generado = None
+    script_ahk = extraer_script_ahk(respuesta)
+
+    if not script_ahk:
+        ahk_generado = buscar_ahk_creado_por_opencode(
+            run_outputs_dir=run_outputs_dir,
+            min_mtime=inicio_opencode,
+            final_ahk_path=ahk_path,
+            opencode_work_dir=opencode_work_dir,
+            nombre_pdf=nombre_seguro,
+        )
+
+        if ahk_generado:
+            contenido_ahk_generado = ahk_generado.read_text(encoding="utf-8", errors="ignore")
+            script_ahk = normalizar_contenido_ahk(contenido_ahk_generado)
+
+    if script_ahk:
+        script_ahk_final = normalizar_contenido_ahk(script_ahk)
         es_valido, error_validacion = validar_contenido_ahk_final(script_ahk_final)
 
-        if not es_valido:
-            raise AhkBuilderError(error_validacion)
+        if es_valido:
+            with open(ahk_path, "w", encoding="utf-8") as f:
+                f.write(script_ahk_final.strip() + "\n")
 
-        with open(ahk_path, "w", encoding="utf-8") as f:
-            f.write(script_ahk_final.strip() + "\n")
+            fila["Archivo AHK"] = str(ahk_path)
 
-        fila["Archivo AHK"] = str(ahk_path)
-
-    except AhkBuilderError as e:
-        fila["Estado"] = "Error AHK Python"
-        fila["Fase actual"] = "Error AHK Python"
+            if ahk_generado and ahk_generado.exists():
+                try:
+                    if ahk_generado.resolve() != ahk_path.resolve():
+                        ahk_generado.unlink()
+                except Exception:
+                    pass
+        else:
+            fila["Archivo AHK"] = "No generado"
+            fila["Error"] = error_validacion
+    else:
         fila["Archivo AHK"] = "No generado"
-        fila["Error"] = str(e)
-        fila["Duración"] = formatear_duracion(time.time() - inicio_pdf)
-        limpiar_temporales_raiz_proyecto_opencode()
-        reportar("Error AHK Python", 1.0, str(e))
-        return fila
 
     limpiar_archivos_temporales_opencode(
         run_outputs_dir=run_outputs_dir,
         final_ahk_path=ahk_path,
         opencode_work_dir=opencode_work_dir,
     )
-    limpiar_temporales_raiz_proyecto_opencode()
 
+    reportar("Extrayendo campos", 0.96, "Extrayendo datos estructurados para la tabla resumen.")
+
+    if not resultado_opencode.get("ok"):
+        fila["Estado"] = "Error OpenCode"
+        fila["Error"] = resultado_opencode.get("stderr") or resultado_opencode.get("error", "")
+        fila["Duración"] = formatear_duracion(time.time() - inicio_pdf)
+        reportar("Error OpenCode", 1.0, "OpenCode devolvió error. Revisa STDERR o el JSON técnico.")
+        return fila
+
+    datos = extraer_datos_respuesta_opencode(respuesta)
+    fila.update(datos)
     fila["Estado"] = "Completado"
-    fila["Fase actual"] = "Completado"
     fila["Duración"] = formatear_duracion(time.time() - inicio_pdf)
 
-    reportar("Completado", 1.0, "PDF procesado correctamente. AHK generado por Python.")
+    reportar("Completado", 1.0, "PDF procesado correctamente.")
 
     return fila
 
