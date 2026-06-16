@@ -1248,7 +1248,10 @@ def procesar_pdf(
     reportar("Generando AHK con Python", 0.92, "Python generará el script AHK final desde los registros JSON.")
 
     try:
-        script_ahk_final = generar_script_ahk_desde_registros(registros_payload)
+        script_ahk_final = generar_script_ahk_desde_registros(
+            registros_payload,
+            nivel_academico=nivel_academico,
+        )
         es_valido, error_validacion = validar_contenido_ahk_final(script_ahk_final)
 
         if not es_valido:

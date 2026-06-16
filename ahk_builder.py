@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 
 
@@ -75,7 +75,79 @@ def limpiar_numeros(valor: Any) -> str:
     return texto
 
 
-def formatear_calificacion(valor: Any) -> str:
+def normalizar_nivel_academico(nivel_academico: Any) -> str:
+    """
+    Normaliza el nivel académico a uno de estos valores:
+    - Pregrado
+    - Posgrado
+
+    También acepta:
+    - N => Pregrado
+    - P => Posgrado
+    - Postgrado => Posgrado
+    """
+    texto = str(nivel_academico or "").strip().lower()
+
+    if not texto:
+        raise AhkBuilderError(
+            "No se recibió nivel académico. "
+            "Debes enviar 'Pregrado' o 'Posgrado' al generar el AHK."
+        )
+
+    texto = (
+        texto.replace("á", "a")
+        .replace("é", "e")
+        .replace("í", "i")
+        .replace("ó", "o")
+        .replace("ú", "u")
+    )
+
+    if texto in {"pregrado", "pre", "n", "normal"}:
+        return "Pregrado"
+
+    if texto in {"posgrado", "postgrado", "post", "p"}:
+        return "Posgrado"
+
+    raise AhkBuilderError(
+        f"Nivel académico inválido: {nivel_academico!r}. "
+        "Valores permitidos: 'Pregrado' o 'Posgrado'."
+    )
+
+
+def obtener_letra_homologacion(nivel_academico: Any) -> str:
+    nivel = normalizar_nivel_academico(nivel_academico)
+
+    if nivel == "Pregrado":
+        return "N"
+
+    if nivel == "Posgrado":
+        return "P"
+
+    raise AhkBuilderError(f"Nivel académico no soportado: {nivel!r}")
+
+
+def obtener_decimales_calificacion(nivel_academico: Any) -> int:
+    nivel = normalizar_nivel_academico(nivel_academico)
+
+    if nivel == "Pregrado":
+        return 1
+
+    if nivel == "Posgrado":
+        return 2
+
+    raise AhkBuilderError(f"Nivel académico no soportado: {nivel!r}")
+
+
+def formatear_calificacion(valor: Any, nivel_academico: Any) -> str:
+    """
+    Formatea la calificación según el nivel académico:
+
+    - Pregrado: 1 decimal
+      Ejemplos: 4 -> 4.0, 4.15 -> 4.2, 3.5 -> 3.5
+
+    - Posgrado: 2 decimales
+      Ejemplos: 4 -> 4.00, 4.2 -> 4.20, 3.5 -> 3.50
+    """
     texto = str(valor or "").strip().replace(",", ".")
 
     if not texto:
@@ -86,7 +158,17 @@ def formatear_calificacion(valor: Any) -> str:
     except InvalidOperation as e:
         raise AhkBuilderError(f"Calificación inválida: {valor}") from e
 
-    return f"{numero:.2f}"
+    decimales = obtener_decimales_calificacion(nivel_academico)
+
+    if decimales == 1:
+        numero_formateado = numero.quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+        return f"{numero_formateado:.1f}"
+
+    if decimales == 2:
+        numero_formateado = numero.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return f"{numero_formateado:.2f}"
+
+    raise AhkBuilderError(f"Cantidad de decimales no soportada: {decimales}")
 
 
 def separar_codigo_original(codigo_original: Any) -> tuple[str, str]:
@@ -102,7 +184,11 @@ def separar_codigo_original(codigo_original: Any) -> tuple[str, str]:
     return letras, numeros
 
 
-def normalizar_registro(registro: dict[str, Any], indice: int) -> dict[str, str]:
+def normalizar_registro(
+    registro: dict[str, Any],
+    indice: int,
+    nivel_academico: Any,
+) -> dict[str, str]:
     if not isinstance(registro, dict):
         raise AhkBuilderError(f"El registro #{indice} no es un objeto JSON.")
 
@@ -122,7 +208,10 @@ def normalizar_registro(registro: dict[str, Any], indice: int) -> dict[str, str]
     if not numeros:
         raise AhkBuilderError(f"El registro #{indice} no tiene números de código.")
 
-    calificacion = formatear_calificacion(registro.get("calificacion"))
+    calificacion = formatear_calificacion(
+        registro.get("calificacion"),
+        nivel_academico=nivel_academico,
+    )
 
     return {
         "letras": letras,
@@ -131,12 +220,34 @@ def normalizar_registro(registro: dict[str, Any], indice: int) -> dict[str, str]
     }
 
 
-def generar_script_ahk_desde_registros(registros: list[dict[str, Any]]) -> str:
+def generar_script_ahk_desde_registros(
+    registros: list[dict[str, Any]],
+    nivel_academico: Any = None,
+) -> str:
+    """
+    Genera el script AHK final desde los registros JSON.
+
+    Parámetro obligatorio:
+    - nivel_academico:
+      - 'Pregrado' => usa letra N y calificaciones con 1 decimal.
+      - 'Posgrado' => usa letra P y calificaciones con 2 decimales.
+
+    Nota:
+    Se deja como parámetro con default None para mostrar un error claro
+    si la app llama esta función sin enviar el nivel.
+    """
+    nivel = normalizar_nivel_academico(nivel_academico)
+    letra_homologacion = obtener_letra_homologacion(nivel)
+
     if not isinstance(registros, list) or not registros:
         raise AhkBuilderError("No hay registros para generar el AHK.")
 
     registros_limpios = [
-        normalizar_registro(registro, index)
+        normalizar_registro(
+            registro=registro,
+            indice=index,
+            nivel_academico=nivel,
+        )
         for index, registro in enumerate(registros, start=1)
     ]
 
@@ -150,9 +261,15 @@ def generar_script_ahk_desde_registros(registros: list[dict[str, Any]]) -> str:
         calificacion = registro["calificacion"]
 
         if index == total:
-            linea = f"Send, {letras}{{Tab}}{numeros}{{Tab}}{{Tab}}{calificacion}{{Tab}}P"
+            linea = (
+                f"Send, {letras}{{Tab}}{numeros}{{Tab}}{{Tab}}"
+                f"{calificacion}{{Tab}}{letra_homologacion}"
+            )
         else:
-            linea = f"Send, {letras}{{Tab}}{numeros}{{Tab}}{{Tab}}{calificacion}{{Tab}}P{{Down}}{{Space}}{{Tab}}"
+            linea = (
+                f"Send, {letras}{{Tab}}{numeros}{{Tab}}{{Tab}}"
+                f"{calificacion}{{Tab}}{letra_homologacion}{{Down}}{{Space}}{{Tab}}"
+            )
 
         lineas.append(linea)
 
@@ -180,12 +297,71 @@ def validar_payload_opencode(data: dict[str, Any]) -> tuple[str, str, list[dict[
     return estado, motivo, registros
 
 
-def generar_ahk_desde_respuesta_json(respuesta: str) -> tuple[str, dict[str, Any]]:
+def inferir_nivel_desde_payload(data: dict[str, Any]) -> str | None:
+    """
+    Fallback opcional para usos directos del builder con el payload completo.
+
+    La app principal debe preferir pasar nivel_academico explícitamente,
+    porque esa decisión ya se tomó antes de generar el AHK.
+    """
+    candidatos = [
+        data.get("nivel_academico"),
+        data.get("nivel"),
+        data.get("tipo_programa"),
+    ]
+
+    for candidato in candidatos:
+        if candidato:
+            try:
+                return normalizar_nivel_academico(candidato)
+            except AhkBuilderError:
+                pass
+
+    programa = str(
+        data.get("programa_aspira")
+        or data.get("programa_al_que_aspira")
+        or ""
+    ).lower()
+
+    programa_normalizado = (
+        programa.replace("á", "a")
+        .replace("é", "e")
+        .replace("í", "i")
+        .replace("ó", "o")
+        .replace("ú", "u")
+    )
+
+    palabras_posgrado = (
+        "maestria",
+        "especializacion",
+        "posgrado",
+        "postgrado",
+        "doctorado",
+        "master",
+        "magister",
+        "mba",
+    )
+
+    if any(palabra in programa_normalizado for palabra in palabras_posgrado):
+        return "Posgrado"
+
+    return None
+
+
+def generar_ahk_desde_respuesta_json(
+    respuesta: str,
+    nivel_academico: Any = None,
+) -> tuple[str, dict[str, Any]]:
     """
     Recibe la respuesta textual de OpenCode.
     Retorna:
     - script AHK generado por Python
     - payload JSON parseado
+
+    Recomendado:
+    - Pasar nivel_academico explícitamente desde la app:
+      generar_ahk_desde_respuesta_json(respuesta, nivel_academico="Pregrado")
+      generar_ahk_desde_respuesta_json(respuesta, nivel_academico="Posgrado")
     """
     data = extraer_json_desde_respuesta(respuesta)
     estado, motivo, registros = validar_payload_opencode(data)
@@ -193,12 +369,60 @@ def generar_ahk_desde_respuesta_json(respuesta: str) -> tuple[str, dict[str, Any
     if estado == "detenido":
         raise AhkBuilderError(motivo)
 
-    script = generar_script_ahk_desde_registros(registros)
+    nivel = nivel_academico or inferir_nivel_desde_payload(data)
+
+    if not nivel:
+        raise AhkBuilderError(
+            "No se pudo determinar el nivel académico para generar el AHK. "
+            "Envía nivel_academico='Pregrado' o nivel_academico='Posgrado'."
+        )
+
+    script = generar_script_ahk_desde_registros(
+        registros,
+        nivel_academico=nivel,
+    )
 
     return script, data
 
 
 def _self_test() -> None:
+    registros = [
+        {
+            "codigo_original": "MEDR22180",
+            "letras": "MEDR",
+            "numeros": "22180",
+            "calificacion": "4.15",
+        },
+        {
+            "codigo_original": "MEDR22280",
+            "letras": "MEDR",
+            "numeros": "22280",
+            "calificacion": "4.2",
+        },
+    ]
+
+    script_pregrado = generar_script_ahk_desde_registros(
+        registros,
+        nivel_academico="Pregrado",
+    )
+
+    assert script_pregrado.startswith("#SingleInstance force")
+    assert "Send, MEDR{Tab}22180{Tab}{Tab}4.2{Tab}N{Down}{Space}{Tab}" in script_pregrado
+    assert "Send, MEDR{Tab}22280{Tab}{Tab}4.2{Tab}N" in script_pregrado
+    assert "{Tab}P" not in script_pregrado
+    assert not script_pregrado.rstrip().endswith("{Down}{Space}{Tab}")
+
+    script_posgrado = generar_script_ahk_desde_registros(
+        registros,
+        nivel_academico="Posgrado",
+    )
+
+    assert script_posgrado.startswith("#SingleInstance force")
+    assert "Send, MEDR{Tab}22180{Tab}{Tab}4.15{Tab}P{Down}{Space}{Tab}" in script_posgrado
+    assert "Send, MEDR{Tab}22280{Tab}{Tab}4.20{Tab}P" in script_posgrado
+    assert "{Tab}N" not in script_posgrado
+    assert not script_posgrado.rstrip().endswith("{Down}{Space}{Tab}")
+
     respuesta = """
 {
   "estado": "ok",
@@ -223,17 +447,18 @@ def _self_test() -> None:
 }
 """
 
-    script, data = generar_ahk_desde_respuesta_json(respuesta)
+    script_json, data = generar_ahk_desde_respuesta_json(respuesta)
 
     assert data["estado"] == "ok"
-    assert script.startswith("#SingleInstance force")
-    assert "Send, MEDR{Tab}22180{Tab}{Tab}4.50{Tab}P{Down}{Space}{Tab}" in script
-    assert "Send, MEDR{Tab}22280{Tab}{Tab}4.20{Tab}P" in script
-    assert not script.rstrip().endswith("{Down}{Space}{Tab}")
+    assert "Send, MEDR{Tab}22180{Tab}{Tab}4.50{Tab}P{Down}{Space}{Tab}" in script_json
+    assert "Send, MEDR{Tab}22280{Tab}{Tab}4.20{Tab}P" in script_json
 
     print("✅ Self-test OK")
     print()
-    print(script)
+    print("PREGRADO:")
+    print(script_pregrado)
+    print("POSGRADO:")
+    print(script_posgrado)
 
 
 if __name__ == "__main__":
