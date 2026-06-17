@@ -137,6 +137,18 @@ def guardar_modelo_opencode_persistente(modelo: str) -> None:
 inicializar_archivo_prompt(PROMPT_PREGRADO_PATH, PROMPT_PREGRADO)
 inicializar_archivo_prompt(PROMPT_POSGRADO_PATH, PROMPT_POSGRADO)
 
+
+def reiniciar_app_streamlit() -> None:
+    """
+    Reinicia la app de forma compatible con versiones recientes y antiguas de Streamlit.
+    Se usa para limpiar/reemplazar la tanda de PDFs cargada en el file_uploader.
+    """
+    if hasattr(st, "rerun"):
+        st.rerun()
+    else:
+        st.experimental_rerun()
+
+
 def sanitizar_nombre_archivo(nombre: str) -> str:
     nombre = re.sub(r'[<>:"/\\|?*]', "", nombre)
     nombre = nombre.replace("\n", " ").replace("\r", " ").strip()
@@ -1423,10 +1435,33 @@ if not modelos_resultado.get("ok"):
 
 st.header("3. Seleccionar PDFs")
 
-uploaded_files = st.file_uploader(
-    "Selecciona uno o varios archivos PDF",
-    type=["pdf"],
-    accept_multiple_files=True,
+if "pdf_uploader_version" not in st.session_state:
+    st.session_state["pdf_uploader_version"] = 0
+
+col_upload_1, col_upload_2 = st.columns([3, 1])
+
+with col_upload_1:
+    uploaded_files = st.file_uploader(
+        "Selecciona uno o varios archivos PDF",
+        type=["pdf"],
+        accept_multiple_files=True,
+        key=f"pdf_uploader_{st.session_state['pdf_uploader_version']}",
+    )
+
+with col_upload_2:
+    st.write("")
+    st.write("")
+    if st.button(
+        "🧹 Reemplazar tanda",
+        help="Limpia los PDFs cargados actualmente para seleccionar una nueva tanda sin quitar archivo por archivo.",
+        key="boton_reemplazar_tanda_pdfs",
+    ):
+        st.session_state["pdf_uploader_version"] += 1
+        reiniciar_app_streamlit()
+
+st.caption(
+    "Para procesar otra tanda, usa **🧹 Reemplazar tanda** y luego selecciona los nuevos PDFs. "
+    "Esto no borra los resultados del último procesamiento."
 )
 
 if uploaded_files:
@@ -1464,11 +1499,78 @@ st.caption(
     "Recomendación inicial: usa 2 PDFs en paralelo. Luego prueba 3 o 4 y valida estabilidad, tiempos y errores."
 )
 
-st.header("5. Ejecutar procesamiento completo")
 
-disabled = not uploaded_files or not prompt_pregrado.strip() or not prompt_posgrado.strip() or not api_keys or not opencode_path
+def es_estado_error_reintentable(estado: str) -> bool:
+    """
+    Define qué filas se pueden reintentar.
 
-if st.button("🚀 Procesar PDFs con LLMWhisperer + OpenCode", disabled=disabled):
+    Se consideran reintentables los errores técnicos del flujo:
+    - Error LLMWhisperer
+    - Error OpenCode
+    - Error JSON OpenCode
+    - Error AHK Python
+    - Error inesperado
+
+    No se reintenta:
+    - Completado
+    - Detenido por condición, porque es una condición de negocio detectada.
+    """
+    texto = quitar_tildes(str(estado or "")).lower().strip()
+
+    if not texto:
+        return False
+
+    if "completado" in texto:
+        return False
+
+    if "detenido" in texto:
+        return False
+
+    return "error" in texto or "fall" in texto or "inesperado" in texto
+
+
+def obtener_filas_con_error(filas: list[dict]) -> list[dict]:
+    return [fila for fila in filas if es_estado_error_reintentable(fila.get("Estado", ""))]
+
+
+def cargar_pdf_jobs_desde_lote(run_id: str, filas_error: list[dict]) -> tuple[list[ArchivoSubidoEnMemoria], list[str]]:
+    """
+    Reconstruye los PDF originales desde uploads/<run_id>/ para permitir reintentos
+    incluso si el widget de subida ya no tiene los archivos en memoria.
+    """
+    jobs = []
+    no_encontrados = []
+    run_uploads_dir = UPLOADS_DIR / run_id
+
+    for fila in filas_error:
+        nombre_archivo = sanitizar_nombre_archivo(fila.get("Archivo", ""))
+        pdf_path = run_uploads_dir / nombre_archivo
+
+        if not nombre_archivo or not pdf_path.exists() or not pdf_path.is_file():
+            no_encontrados.append(nombre_archivo or "Archivo sin nombre")
+            continue
+
+        try:
+            jobs.append(ArchivoSubidoEnMemoria(nombre_archivo, pdf_path.read_bytes()))
+        except Exception:
+            no_encontrados.append(nombre_archivo)
+
+    return jobs, no_encontrados
+
+
+def ejecutar_lote_streamlit(
+    pdf_jobs: list[ArchivoSubidoEnMemoria],
+    prompt_pregrado: str,
+    prompt_posgrado: str,
+    modelo_opencode: str,
+    max_workers_opencode: int,
+    etiqueta_boton: str = "Procesamiento",
+    parent_run_id: str | None = None,
+) -> dict:
+    """
+    Ejecuta un lote completo y renderiza progreso en Streamlit.
+    Sirve tanto para el primer procesamiento como para los reintentos.
+    """
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_uploads_dir = UPLOADS_DIR / run_id
     run_outputs_dir = RUNS_DIR / run_id
@@ -1480,6 +1582,7 @@ if st.button("🚀 Procesar PDFs con LLMWhisperer + OpenCode", disabled=disabled
     prompt_posgrado_path = run_outputs_dir / "prompt_posgrado.txt"
     modelo_opencode_path = run_outputs_dir / "modelo_opencode.txt"
     concurrencia_path = run_outputs_dir / "concurrencia.txt"
+    metadata_path = run_outputs_dir / "metadata_lote.json"
 
     with open(prompt_pregrado_path, "w", encoding="utf-8") as f:
         f.write(prompt_pregrado)
@@ -1493,6 +1596,16 @@ if st.button("🚀 Procesar PDFs con LLMWhisperer + OpenCode", disabled=disabled
     with open(concurrencia_path, "w", encoding="utf-8") as f:
         f.write(str(max_workers_opencode))
 
+    guardar_json(metadata_path, {
+        "run_id": run_id,
+        "tipo_lote": etiqueta_boton,
+        "parent_run_id": parent_run_id or "",
+        "total_archivos": len(pdf_jobs),
+        "modelo_opencode": modelo_opencode or "Default OpenCode",
+        "concurrencia": max_workers_opencode,
+        "fecha": datetime.now().isoformat(timespec="seconds"),
+    })
+
     st.info(f"📁 Carpeta de salida del lote: `{run_outputs_dir}`")
 
     progress = st.progress(0)
@@ -1501,17 +1614,12 @@ if st.button("🚀 Procesar PDFs con LLMWhisperer + OpenCode", disabled=disabled
     metrics_placeholder = st.empty()
     table_placeholder = st.empty()
 
-    total = len(uploaded_files)
+    total = len(pdf_jobs)
     inicio_lote = time.time()
 
     eventos_progreso = Queue()
     filas_por_indice = {}
     estado_por_indice = {}
-
-    pdf_jobs = [
-        ArchivoSubidoEnMemoria(file.name, file.getvalue())
-        for file in uploaded_files
-    ]
 
     for index, job in enumerate(pdf_jobs, start=1):
         estado_por_indice[index] = {
@@ -1556,7 +1664,10 @@ if st.button("🚀 Procesar PDFs con LLMWhisperer + OpenCode", disabled=disabled
             if fila.get("Estado") == "Completado"
         )
         terminados = len(filas_por_indice)
-        errores = terminados - completados
+        errores = sum(
+            1 for fila in filas_por_indice.values()
+            if es_estado_error_reintentable(fila.get("Estado", ""))
+        )
 
         tiempo_transcurrido = time.time() - inicio_lote
         tiempo_restante = None
@@ -1582,7 +1693,7 @@ if st.button("🚀 Procesar PDFs con LLMWhisperer + OpenCode", disabled=disabled
             activos_txt = "No hay PDFs activos en este instante."
 
         status_placeholder.info(
-            f"🚀 Procesamiento paralelo activo\n\n"
+            f"🚀 {etiqueta_boton} activo\n\n"
             f"**PDFs en paralelo configurados:** {max_workers_opencode}\n\n"
             f"**Activos:**\n{activos_txt}"
         )
@@ -1592,7 +1703,7 @@ if st.button("🚀 Procesar PDFs con LLMWhisperer + OpenCode", disabled=disabled
 **Progreso total:** {progreso_total * 100:.1f}%  
 **Terminados:** {terminados}/{total}  
 **Completados:** {completados}  
-**Errores:** {errores}  
+**Errores reintentables:** {errores}  
 **Tiempo transcurrido:** {formatear_duracion(tiempo_transcurrido)}  
 **Tiempo restante estimado:** {formatear_duracion(tiempo_restante)}
 """
@@ -1634,7 +1745,9 @@ if st.button("🚀 Procesar PDFs con LLMWhisperer + OpenCode", disabled=disabled
 
     renderizar_estado()
 
-    with ThreadPoolExecutor(max_workers=max_workers_opencode) as executor:
+    workers = max(1, min(int(max_workers_opencode or 1), total or 1))
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
         futuros = {
             executor.submit(ejecutar_job, index, job): (index, job.name, time.time())
             for index, job in enumerate(pdf_jobs, start=1)
@@ -1663,7 +1776,7 @@ if st.button("🚀 Procesar PDFs con LLMWhisperer + OpenCode", disabled=disabled
                         "Worker dir": "No creado",
                         "Nivel": "",
                         "Prompt usado": "",
-                        "Modelo OpenCode": modelo_opencode if "modelo_opencode" in globals() else "",
+                        "Modelo OpenCode": modelo_opencode or "Default OpenCode",
                         "Nombre": "",
                         "Programa al que aspira": "",
                         "Plan": "",
@@ -1700,20 +1813,35 @@ if st.button("🚀 Procesar PDFs con LLMWhisperer + OpenCode", disabled=disabled
     resumen_csv_path = run_outputs_dir / "resumen_resultados.csv"
     guardar_csv_resumen(resumen_csv_path, filas)
 
+    filas_error = obtener_filas_con_error(filas)
+    errores_csv_path = None
+
+    if filas_error:
+        errores_csv_path = run_outputs_dir / "resumen_errores_reintentables.csv"
+        guardar_csv_resumen(errores_csv_path, filas_error)
+
     zip_ahk_path, archivos_ahk = crear_zip_ahk(run_outputs_dir, filas)
 
-    status_placeholder.success("✅ Procesamiento por lote finalizado")
+    status_placeholder.success(f"✅ {etiqueta_boton} finalizado")
 
     completados = sum(1 for f in filas if f.get("Estado") == "Completado")
-    errores = total - completados
+    detenidos = sum(1 for f in filas if "detenido" in quitar_tildes(str(f.get("Estado", ""))).lower())
+    errores = len(filas_error)
 
-    col_ok, col_error, col_total = st.columns(3)
+    col_ok, col_error, col_detenido, col_total = st.columns(4)
     col_ok.metric("Completados", completados)
-    col_error.metric("Errores", errores)
+    col_error.metric("Errores reintentables", errores)
+    col_detenido.metric("Detenidos", detenidos)
     col_total.metric("Total", total)
 
     st.subheader("Resumen final")
     st.dataframe(filas, use_container_width=True)
+
+    if filas_error:
+        st.subheader("Archivos con error que se pueden reintentar")
+        st.dataframe(filas_error, use_container_width=True)
+    else:
+        st.success("✅ No quedaron archivos con error reintentable en este lote.")
 
     with open(resumen_csv_path, "rb") as f:
         st.download_button(
@@ -1721,7 +1849,18 @@ if st.button("🚀 Procesar PDFs con LLMWhisperer + OpenCode", disabled=disabled
             data=f,
             file_name="resumen_resultados.csv",
             mime="text/csv",
+            key=f"download_csv_{run_id}",
         )
+
+    if errores_csv_path and errores_csv_path.exists():
+        with open(errores_csv_path, "rb") as f:
+            st.download_button(
+                label="⬇️ Descargar CSV solo de errores reintentables",
+                data=f,
+                file_name="resumen_errores_reintentables.csv",
+                mime="text/csv",
+                key=f"download_error_csv_{run_id}",
+            )
 
     if zip_ahk_path and zip_ahk_path.exists():
         with open(zip_ahk_path, "rb") as f:
@@ -1730,6 +1869,7 @@ if st.button("🚀 Procesar PDFs con LLMWhisperer + OpenCode", disabled=disabled
                 data=f,
                 file_name="scripts_ahk.zip",
                 mime="application/zip",
+                key=f"download_zip_{run_id}",
             )
 
         st.write(f"**ZIP AHK generado:** `{zip_ahk_path}`")
@@ -1741,7 +1881,232 @@ if st.button("🚀 Procesar PDFs con LLMWhisperer + OpenCode", disabled=disabled
     st.write(f"**Modelo OpenCode:** `{modelo_opencode_path}`")
     st.write(f"**Concurrencia usada:** `{concurrencia_path}`")
     st.write(f"**CSV generado:** `{resumen_csv_path}`")
+
+    if errores_csv_path:
+        st.write(f"**CSV errores reintentables:** `{errores_csv_path}`")
+
+    st.write(f"**Metadata lote:** `{metadata_path}`")
     st.write(f"**Carpeta completa del lote:** `{run_outputs_dir}`")
+
+    resultado_lote = {
+        "run_id": run_id,
+        "parent_run_id": parent_run_id or "",
+        "run_uploads_dir": str(run_uploads_dir),
+        "run_outputs_dir": str(run_outputs_dir),
+        "filas": filas,
+        "filas_error": filas_error,
+        "resumen_csv_path": str(resumen_csv_path),
+        "errores_csv_path": str(errores_csv_path) if errores_csv_path else "",
+        "zip_ahk_path": str(zip_ahk_path) if zip_ahk_path else "",
+    }
+
+    st.session_state["ultimo_lote"] = resultado_lote
+
+    return resultado_lote
+
+
+def renderizar_resultado_lote_guardado(resultado_lote: dict | None) -> None:
+    """
+    Vuelve a mostrar el resultado del último lote guardado en session_state.
+
+    Esto evita que la vista de resultados desaparezca cuando Streamlit hace rerun
+    después de presionar un botón de descarga.
+    """
+    if not resultado_lote:
+        return
+
+    run_id = resultado_lote.get("run_id", "")
+    filas = resultado_lote.get("filas") or []
+    filas_error = resultado_lote.get("filas_error") or obtener_filas_con_error(filas)
+    run_outputs_dir = resultado_lote.get("run_outputs_dir", "")
+    resumen_csv_path = resultado_lote.get("resumen_csv_path", "")
+    errores_csv_path = resultado_lote.get("errores_csv_path", "")
+    zip_ahk_path = resultado_lote.get("zip_ahk_path", "")
+
+    if not filas:
+        return
+
+    total = len(filas)
+    completados = sum(1 for f in filas if f.get("Estado") == "Completado")
+    detenidos = sum(
+        1
+        for f in filas
+        if "detenido" in quitar_tildes(str(f.get("Estado", ""))).lower()
+    )
+    errores = len(filas_error)
+    ahk_generados = sum(
+        1
+        for f in filas
+        if f.get("Archivo AHK") and f.get("Archivo AHK") != "No generado"
+    )
+
+    st.header("7. Resultado del último procesamiento")
+    st.info(
+        f"Esta vista queda guardada aunque descargues archivos o limpies la tanda de PDFs. "
+        f"Último lote: `{run_id}`"
+    )
+
+    col_ok, col_error, col_detenido, col_ahk, col_total = st.columns(5)
+    col_ok.metric("Completados", completados)
+    col_error.metric("Errores reintentables", errores)
+    col_detenido.metric("Detenidos", detenidos)
+    col_ahk.metric("AHK generados", ahk_generados)
+    col_total.metric("Total", total)
+
+    st.subheader("Resumen final")
+    st.dataframe(filas, use_container_width=True)
+
+    if filas_error:
+        st.subheader("Archivos con error que se pueden reintentar")
+        st.dataframe(filas_error, use_container_width=True)
+    else:
+        st.success("✅ No quedaron archivos con error reintentable en este lote.")
+
+    def boton_descarga_archivo(path_str: str, label: str, file_name: str, mime: str, key_suffix: str) -> None:
+        if not path_str:
+            return
+
+        path = Path(path_str)
+
+        if not path.exists() or not path.is_file():
+            st.warning(f"No se encontró el archivo para descargar: `{path}`")
+            return
+
+        with open(path, "rb") as f:
+            st.download_button(
+                label=label,
+                data=f,
+                file_name=file_name,
+                mime=mime,
+                key=f"persistente_{key_suffix}_{run_id}",
+            )
+
+    col_down_1, col_down_2, col_down_3 = st.columns(3)
+
+    with col_down_1:
+        boton_descarga_archivo(
+            resumen_csv_path,
+            "⬇️ Descargar CSV de resultados",
+            "resumen_resultados.csv",
+            "text/csv",
+            "csv_resultados",
+        )
+
+    with col_down_2:
+        if errores_csv_path:
+            boton_descarga_archivo(
+                errores_csv_path,
+                "⬇️ Descargar CSV solo de errores",
+                "resumen_errores_reintentables.csv",
+                "text/csv",
+                "csv_errores",
+            )
+        else:
+            st.caption("No hay CSV de errores porque no hubo errores reintentables.")
+
+    with col_down_3:
+        if zip_ahk_path:
+            boton_descarga_archivo(
+                zip_ahk_path,
+                "⬇️ Descargar scripts AHK en ZIP",
+                "scripts_ahk.zip",
+                "application/zip",
+                "zip_ahk",
+            )
+        else:
+            st.caption("No hay ZIP AHK porque no se generaron scripts en este lote.")
+
+    st.write(f"**Carpeta completa del lote:** `{run_outputs_dir}`")
+    st.write(f"**CSV generado:** `{resumen_csv_path}`")
+
+    if errores_csv_path:
+        st.write(f"**CSV errores reintentables:** `{errores_csv_path}`")
+
+    if zip_ahk_path:
+        st.write(f"**ZIP AHK generado:** `{zip_ahk_path}`")
+
+
+lote_ejecutado_en_esta_corrida = False
+
+st.header("5. Ejecutar procesamiento completo")
+
+disabled = not uploaded_files or not prompt_pregrado.strip() or not prompt_posgrado.strip() or not api_keys or not opencode_path
+
+if st.button("🚀 Procesar PDFs con LLMWhisperer + OpenCode", disabled=disabled):
+    pdf_jobs = [
+        ArchivoSubidoEnMemoria(file.name, file.getvalue())
+        for file in uploaded_files
+    ]
+
+    ejecutar_lote_streamlit(
+        pdf_jobs=pdf_jobs,
+        prompt_pregrado=prompt_pregrado,
+        prompt_posgrado=prompt_posgrado,
+        modelo_opencode=modelo_opencode,
+        max_workers_opencode=max_workers_opencode,
+        etiqueta_boton="Procesamiento por lote",
+    )
+    lote_ejecutado_en_esta_corrida = True
+
+st.header("6. Reintentar solo PDFs con error")
+
+ultimo_lote = st.session_state.get("ultimo_lote")
+
+if not ultimo_lote:
+    st.info("Después de ejecutar un lote, aquí aparecerán los archivos que quedaron con error para poder reintentarlos.")
+else:
+    filas_error = ultimo_lote.get("filas_error", [])
+    run_id_anterior = ultimo_lote.get("run_id", "")
+
+    if not filas_error:
+        st.success("✅ El último lote no tiene archivos con error reintentable.")
+    else:
+        st.warning(
+            f"Se encontraron {len(filas_error)} archivo(s) con error reintentable en el lote `{run_id_anterior}`."
+        )
+        st.dataframe(filas_error, use_container_width=True)
+
+        max_workers_retry_limite = min(max_workers_opencode, len(filas_error)) if filas_error else 1
+        max_workers_retry_limite = max(1, max_workers_retry_limite)
+
+        concurrencia_reintento = st.slider(
+            "Número de PDFs en paralelo para el reintento",
+            min_value=1,
+            max_value=max_workers_retry_limite,
+            value=max_workers_retry_limite,
+            step=1,
+            key=f"concurrencia_reintento_{run_id_anterior}",
+        )
+
+        if st.button(
+            f"🔁 Reintentar solo los {len(filas_error)} PDF(s) con error",
+            disabled=not api_keys or not opencode_path,
+            key=f"boton_reintentar_{run_id_anterior}",
+        ):
+            pdf_jobs_retry, no_encontrados = cargar_pdf_jobs_desde_lote(run_id_anterior, filas_error)
+
+            if no_encontrados:
+                st.error(
+                    "No se pudieron encontrar estos PDFs originales para reintentar: "
+                    + ", ".join(no_encontrados)
+                )
+
+            if pdf_jobs_retry:
+                ejecutar_lote_streamlit(
+                    pdf_jobs=pdf_jobs_retry,
+                    prompt_pregrado=prompt_pregrado,
+                    prompt_posgrado=prompt_posgrado,
+                    modelo_opencode=modelo_opencode,
+                    max_workers_opencode=concurrencia_reintento,
+                    etiqueta_boton="Reintento de errores",
+                    parent_run_id=run_id_anterior,
+                )
+                lote_ejecutado_en_esta_corrida = True
+            else:
+                st.warning("No hay PDFs disponibles para reintentar.")
+
+if st.session_state.get("ultimo_lote") and not lote_ejecutado_en_esta_corrida:
+    renderizar_resultado_lote_guardado(st.session_state.get("ultimo_lote"))
 
 st.divider()
 st.caption("Recomendación: para la primera prueba usa 2 o 3 PDFs antes de correr 30 o 40.")
