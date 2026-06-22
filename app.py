@@ -1558,6 +1558,174 @@ def cargar_pdf_jobs_desde_lote(run_id: str, filas_error: list[dict]) -> tuple[li
     return jobs, no_encontrados
 
 
+def normalizar_clave_archivo_resultado(nombre_archivo: str) -> str:
+    """
+    Crea una clave estable para identificar el mismo PDF entre el primer lote y sus reintentos.
+
+    El problema que se corrige aquí es que un reintento genera un lote nuevo; por eso,
+    si no fusionamos por nombre de archivo, Streamlit termina mostrando solo el lote
+    del reintento y desaparecen de la vista los AHK correctos del primer intento.
+    """
+    nombre = sanitizar_nombre_archivo(str(nombre_archivo or ""))
+    nombre = quitar_tildes(nombre).lower().strip()
+    nombre = re.sub(r"\s+", " ", nombre)
+    return nombre
+
+
+def fusionar_filas_resultado(
+    filas_base: list[dict],
+    filas_reintento: list[dict],
+) -> list[dict]:
+    """
+    Fusiona el resultado histórico con el resultado de un reintento.
+
+    Reglas:
+    - Las filas que NO fueron reintentadas se conservan intactas.
+    - Las filas que SÍ fueron reintentadas se reemplazan por su resultado más reciente.
+    - Si por alguna razón aparece un archivo nuevo en el reintento, se agrega al final.
+
+    Esto mantiene visibles los PDF completados y sus AHK generados en el primer intento,
+    pero actualiza los PDF que antes estaban en error.
+    """
+    filas_base = filas_base or []
+    filas_reintento = filas_reintento or []
+
+    reintentos_por_archivo = {}
+
+    for fila in filas_reintento:
+        clave = normalizar_clave_archivo_resultado(fila.get("Archivo", ""))
+        if clave:
+            reintentos_por_archivo[clave] = fila
+
+    filas_combinadas = []
+    claves_usadas = set()
+
+    for fila_base in filas_base:
+        clave = normalizar_clave_archivo_resultado(fila_base.get("Archivo", ""))
+
+        if clave and clave in reintentos_por_archivo:
+            filas_combinadas.append(reintentos_por_archivo[clave])
+            claves_usadas.add(clave)
+        else:
+            filas_combinadas.append(fila_base)
+
+    for fila_reintento in filas_reintento:
+        clave = normalizar_clave_archivo_resultado(fila_reintento.get("Archivo", ""))
+
+        if clave and clave in claves_usadas:
+            continue
+
+        filas_combinadas.append(fila_reintento)
+
+    return filas_combinadas
+
+
+def guardar_artifactos_resultado_lote(
+    run_outputs_dir: Path,
+    filas: list[dict],
+) -> tuple[Path, list[dict], Path | None, Path | None, list[Path]]:
+    """
+    Regenera CSV, CSV de errores y ZIP AHK a partir de una tabla de resultados.
+
+    Se usa especialmente después de un reintento, porque el resultado mostrado debe ser
+    acumulado: filas correctas del primer intento + filas actualizadas del reintento.
+    """
+    run_outputs_dir.mkdir(parents=True, exist_ok=True)
+
+    resumen_csv_path = run_outputs_dir / "resumen_resultados.csv"
+    guardar_csv_resumen(resumen_csv_path, filas)
+
+    filas_error = obtener_filas_con_error(filas)
+    errores_csv_path = run_outputs_dir / "resumen_errores_reintentables.csv"
+
+    if filas_error:
+        guardar_csv_resumen(errores_csv_path, filas_error)
+    elif errores_csv_path.exists():
+        try:
+            errores_csv_path.unlink()
+        except Exception:
+            pass
+
+    zip_ahk_path, archivos_ahk = crear_zip_ahk(run_outputs_dir, filas)
+
+    zip_final_path = run_outputs_dir / "scripts_ahk.zip"
+    if not zip_ahk_path and zip_final_path.exists():
+        try:
+            zip_final_path.unlink()
+        except Exception:
+            pass
+
+    return (
+        resumen_csv_path,
+        filas_error,
+        errores_csv_path if filas_error else None,
+        zip_ahk_path,
+        archivos_ahk,
+    )
+
+
+def reconstruir_resultado_lote_combinado(
+    resultado_base: dict,
+    resultado_reintento: dict,
+) -> dict:
+    """
+    Construye el resultado acumulado después de un reintento.
+
+    Antes, el reintento reemplazaba `ultimo_lote` completo por un lote que contenía
+    solo los PDF reintentados. Eso hacía que desaparecieran de la UI:
+    - las filas correctas del primer intento,
+    - el ZIP con los AHK correctos del primer intento,
+    - y los botones de descarga asociados.
+
+    Ahora se conserva el lote base y solo se reemplazan las filas de los archivos
+    que fueron reintentados. Luego se regeneran el CSV y el ZIP con TODOS los AHK
+    disponibles en la tabla combinada.
+    """
+    filas_base = resultado_base.get("filas") or []
+    filas_reintento = resultado_reintento.get("filas") or []
+    filas_combinadas = fusionar_filas_resultado(filas_base, filas_reintento)
+
+    run_id = resultado_reintento.get("run_id", "")
+    run_outputs_dir = Path(resultado_reintento.get("run_outputs_dir") or RUNS_DIR / run_id)
+
+    (
+        resumen_csv_path,
+        filas_error,
+        errores_csv_path,
+        zip_ahk_path,
+        archivos_ahk,
+    ) = guardar_artifactos_resultado_lote(run_outputs_dir, filas_combinadas)
+
+    metadata_combinada_path = run_outputs_dir / "metadata_resultado_combinado.json"
+    guardar_json(metadata_combinada_path, {
+        "run_id": run_id,
+        "tipo_lote": "Resultado combinado con reintentos",
+        "run_id_base": resultado_base.get("run_id", ""),
+        "run_id_reintento": resultado_reintento.get("run_id", ""),
+        "parent_run_id": resultado_reintento.get("parent_run_id", ""),
+        "total_filas_base": len(filas_base),
+        "total_filas_reintento": len(filas_reintento),
+        "total_filas_combinadas": len(filas_combinadas),
+        "errores_reintentables_restantes": len(filas_error),
+        "ahk_en_zip": len(archivos_ahk),
+        "fecha": datetime.now().isoformat(timespec="seconds"),
+    })
+
+    return {
+        "run_id": run_id,
+        "parent_run_id": resultado_base.get("run_id", ""),
+        "run_uploads_dir": resultado_reintento.get("run_uploads_dir", ""),
+        "run_outputs_dir": str(run_outputs_dir),
+        "filas": filas_combinadas,
+        "filas_error": filas_error,
+        "resumen_csv_path": str(resumen_csv_path),
+        "errores_csv_path": str(errores_csv_path) if errores_csv_path else "",
+        "zip_ahk_path": str(zip_ahk_path) if zip_ahk_path else "",
+        "es_resultado_combinado": True,
+        "metadata_combinada_path": str(metadata_combinada_path),
+    }
+
+
 def ejecutar_lote_streamlit(
     pdf_jobs: list[ArchivoSubidoEnMemoria],
     prompt_pregrado: str,
@@ -1941,10 +2109,16 @@ def renderizar_resultado_lote_guardado(resultado_lote: dict | None) -> None:
     )
 
     st.header("7. Resultado del último procesamiento")
-    st.info(
-        f"Esta vista queda guardada aunque descargues archivos o limpies la tanda de PDFs. "
-        f"Último lote: `{run_id}`"
-    )
+    if resultado_lote.get("es_resultado_combinado"):
+        st.success(
+            "✅ Resultado acumulado después de reintentos: esta tabla conserva los archivos correctos "
+            "de intentos anteriores y actualiza solo los PDF reintentados."
+        )
+    else:
+        st.info(
+            f"Esta vista queda guardada aunque descargues archivos o limpies la tanda de PDFs. "
+            f"Último lote: `{run_id}`"
+        )
 
     col_ok, col_error, col_detenido, col_ahk, col_total = st.columns(5)
     col_ok.metric("Completados", completados)
@@ -2092,7 +2266,12 @@ else:
                 )
 
             if pdf_jobs_retry:
-                ejecutar_lote_streamlit(
+                # Guardamos una copia del lote visible antes del reintento.
+                # `ejecutar_lote_streamlit` crea un lote nuevo solo con los PDF reintentados,
+                # pero la vista final debe conservar también los PDF correctos del primer intento.
+                resultado_base_antes_reintento = dict(ultimo_lote)
+
+                resultado_reintento = ejecutar_lote_streamlit(
                     pdf_jobs=pdf_jobs_retry,
                     prompt_pregrado=prompt_pregrado,
                     prompt_posgrado=prompt_posgrado,
@@ -2101,6 +2280,20 @@ else:
                     etiqueta_boton="Reintento de errores",
                     parent_run_id=run_id_anterior,
                 )
+
+                resultado_combinado = reconstruir_resultado_lote_combinado(
+                    resultado_base=resultado_base_antes_reintento,
+                    resultado_reintento=resultado_reintento,
+                )
+
+                st.session_state["ultimo_lote"] = resultado_combinado
+
+                st.success(
+                    "✅ Resultado combinado actualizado: se conservaron los AHK y las filas correctas "
+                    "del primer intento, y se reemplazaron solo las filas de los PDF reintentados."
+                )
+
+                renderizar_resultado_lote_guardado(resultado_combinado)
                 lote_ejecutado_en_esta_corrida = True
             else:
                 st.warning("No hay PDFs disponibles para reintentar.")
