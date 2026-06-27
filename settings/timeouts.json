@@ -1,0 +1,7 @@
+{
+  "timeout_opencode_minutos": 5,
+  "timeout_pdf_minutos": 10,
+  "timeout_opencode_segundos": 300,
+  "timeout_pdf_segundos": 600,
+  "updated_at": "2026-06-27T20:54:09"
+}

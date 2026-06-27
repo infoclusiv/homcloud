@@ -10,6 +10,7 @@ import shutil
 import zipfile
 import unicodedata
 import time
+import signal
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from queue import Queue, Empty
 from datetime import datetime
@@ -36,6 +37,12 @@ PROMPT_PREGRADO_PATH = PROMPTS_DIR / "pregrado.txt"
 PROMPT_POSGRADO_PATH = PROMPTS_DIR / "posgrado.txt"
 SETTINGS_DIR = BASE_DIR / "settings"
 MODELO_OPENCODE_PERSISTENTE_PATH = SETTINGS_DIR / "modelo_opencode.txt"
+TIMEOUTS_PERSISTENTES_PATH = SETTINGS_DIR / "timeouts.json"
+
+# Timeouts defensivos para evitar que un PDF bloquee todo el lote.
+# El usuario puede ajustarlos desde la interfaz antes de procesar.
+OPENCODE_TIMEOUT_SEGUNDOS_DEFAULT = 900  # 15 minutos por llamada a OpenCode
+PDF_TIMEOUT_SEGUNDOS_DEFAULT = 1500      # 25 minutos por PDF activo en el lote
 
 UPLOADS_DIR.mkdir(exist_ok=True)
 OUTPUTS_DIR.mkdir(exist_ok=True)
@@ -129,6 +136,84 @@ def guardar_modelo_opencode_persistente(modelo: str) -> None:
     try:
         MODELO_OPENCODE_PERSISTENTE_PATH.parent.mkdir(parents=True, exist_ok=True)
         MODELO_OPENCODE_PERSISTENTE_PATH.write_text((modelo or "").strip(), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def limitar_entero(valor, minimo: int, maximo: int, default: int) -> int:
+    """
+    Convierte un valor a entero y lo limita a un rango seguro para la UI.
+    """
+    try:
+        numero = int(valor)
+    except Exception:
+        numero = int(default)
+
+    return max(int(minimo), min(int(maximo), numero))
+
+
+def cargar_timeouts_persistentes() -> dict:
+    """
+    Carga la última configuración de timeouts guardada por el usuario.
+
+    Se guarda en minutos porque así se muestra en la interfaz.
+    Si el archivo no existe o está corrupto, se usan los defaults defensivos.
+    """
+    default_opencode_minutos = OPENCODE_TIMEOUT_SEGUNDOS_DEFAULT // 60
+    default_pdf_minutos = PDF_TIMEOUT_SEGUNDOS_DEFAULT // 60
+
+    config = {
+        "timeout_opencode_minutos": limitar_entero(default_opencode_minutos, 5, 45, 15),
+        "timeout_pdf_minutos": limitar_entero(default_pdf_minutos, 10, 90, 25),
+    }
+
+    try:
+        if not TIMEOUTS_PERSISTENTES_PATH.exists():
+            return config
+
+        data = json.loads(TIMEOUTS_PERSISTENTES_PATH.read_text(encoding="utf-8"))
+
+        config["timeout_opencode_minutos"] = limitar_entero(
+            data.get("timeout_opencode_minutos"),
+            5,
+            45,
+            config["timeout_opencode_minutos"],
+        )
+        config["timeout_pdf_minutos"] = limitar_entero(
+            data.get("timeout_pdf_minutos"),
+            10,
+            90,
+            config["timeout_pdf_minutos"],
+        )
+    except Exception:
+        return config
+
+    return config
+
+
+def guardar_timeouts_persistentes(
+    timeout_opencode_minutos: int,
+    timeout_pdf_minutos: int,
+) -> None:
+    """
+    Guarda automáticamente los timeouts elegidos para reutilizarlos al reiniciar la app.
+    """
+    try:
+        timeout_opencode_minutos = limitar_entero(timeout_opencode_minutos, 5, 45, 15)
+        timeout_pdf_minutos = limitar_entero(timeout_pdf_minutos, 10, 90, 25)
+
+        TIMEOUTS_PERSISTENTES_PATH.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "timeout_opencode_minutos": timeout_opencode_minutos,
+            "timeout_pdf_minutos": timeout_pdf_minutos,
+            "timeout_opencode_segundos": timeout_opencode_minutos * 60,
+            "timeout_pdf_segundos": timeout_pdf_minutos * 60,
+            "updated_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        TIMEOUTS_PERSISTENTES_PATH.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
     except Exception:
         pass
 
@@ -671,11 +756,61 @@ def validar_contenido_ahk_final(contenido: str):
 
 
 
+def terminar_arbol_proceso(proceso: subprocess.Popen, timeout_gracia: float = 5.0) -> None:
+    """
+    Intenta terminar el proceso principal y sus hijos.
+
+    Esto es importante para OpenCode porque puede dejar procesos hijos activos.
+    En Windows se usa taskkill /T /F; en Linux/Mac se usa el process group.
+    """
+    if not proceso or proceso.poll() is not None:
+        return
+
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(proceso.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        else:
+            try:
+                os.killpg(os.getpgid(proceso.pid), signal.SIGTERM)
+            except Exception:
+                proceso.terminate()
+    except Exception:
+        try:
+            proceso.terminate()
+        except Exception:
+            pass
+
+    try:
+        proceso.wait(timeout=timeout_gracia)
+    except Exception:
+        try:
+            if os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/PID", str(proceso.pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+            else:
+                try:
+                    os.killpg(os.getpgid(proceso.pid), signal.SIGKILL)
+                except Exception:
+                    proceso.kill()
+        except Exception:
+            pass
+
+
 def ejecutar_opencode(
     prompt: str,
     txt_path: Path,
     modelo_opencode: str = '',
     cwd: Path | None = None,
+    timeout_segundos: int = OPENCODE_TIMEOUT_SEGUNDOS_DEFAULT,
 ):
     opencode_path = shutil.which("opencode")
 
@@ -694,33 +829,46 @@ def ejecutar_opencode(
     workdir = cwd or BASE_DIR
     workdir.mkdir(parents=True, exist_ok=True)
 
+    comando = [
+        opencode_path,
+        "run",
+        "--dir",
+        str(workdir),
+    ]
+
+    if modelo_opencode and modelo_opencode.strip():
+        comando.extend(["--model", modelo_opencode.strip()])
+
+    comando.extend([
+        prompt,
+        "--file",
+        str(txt_path),
+    ])
+
+    timeout_segundos = int(timeout_segundos or OPENCODE_TIMEOUT_SEGUNDOS_DEFAULT)
+    inicio = time.time()
+    proceso = None
+
     try:
-        comando = [
-            opencode_path,
-            "run",
-            "--dir",
-            str(workdir),
-        ]
+        popen_kwargs = {
+            "cwd": str(workdir),
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "text": True,
+            "encoding": "utf-8",
+            "errors": "replace",
+        }
 
-        if modelo_opencode and modelo_opencode.strip():
-            comando.extend(["--model", modelo_opencode.strip()])
+        if os.name == "nt":
+            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            popen_kwargs["start_new_session"] = True
 
-        comando.extend([
-            prompt,
-            "--file",
-            str(txt_path),
-        ])
+        proceso = subprocess.Popen(comando, **popen_kwargs)
+        stdout, stderr = proceso.communicate(timeout=timeout_segundos)
 
-        proceso = subprocess.run(
-            comando,
-            cwd=str(workdir),
-            capture_output=True,
-            text=True,
-            timeout=900,
-        )
-
-        stdout = quitar_ansi(proceso.stdout or "")
-        stderr = quitar_ansi(proceso.stderr or "")
+        stdout = quitar_ansi(stdout or "")
+        stderr = quitar_ansi(stderr or "")
 
         return {
             "ok": proceso.returncode == 0,
@@ -729,23 +877,39 @@ def ejecutar_opencode(
             "stderr": stderr,
             "command": comando,
             "cwd": str(workdir),
+            "timeout_segundos": timeout_segundos,
+            "duracion_segundos": round(time.time() - inicio, 2),
+            "timeout": False,
         }
 
     except subprocess.TimeoutExpired as e:
+        stdout = quitar_ansi(e.stdout or "")
+        stderr = quitar_ansi(e.stderr or "")
+        terminar_arbol_proceso(proceso)
+
         return {
             "ok": False,
-            "error": "OpenCode tardó demasiado y se canceló por timeout.",
-            "stdout": quitar_ansi(e.stdout or ""),
-            "stderr": quitar_ansi(e.stderr or ""),
+            "error": f"OpenCode tardó más de {formatear_duracion(timeout_segundos)} y se canceló por timeout.",
+            "stdout": stdout,
+            "stderr": stderr,
+            "command": comando,
             "cwd": str(workdir),
+            "timeout_segundos": timeout_segundos,
+            "duracion_segundos": round(time.time() - inicio, 2),
+            "timeout": True,
         }
 
     except Exception as e:
+        terminar_arbol_proceso(proceso)
         return {
             "ok": False,
             "error": str(e),
             "traceback": traceback.format_exc(),
+            "command": comando,
             "cwd": str(workdir),
+            "timeout_segundos": timeout_segundos,
+            "duracion_segundos": round(time.time() - inicio, 2),
+            "timeout": False,
         }
 
 def extraer_campo(texto: str, etiqueta: str, default: str = "No extraído") -> str:
@@ -1093,6 +1257,7 @@ def procesar_pdf(
     run_uploads_dir: Path,
     run_outputs_dir: Path,
     progress_callback=None,
+    timeout_opencode_segundos: int = OPENCODE_TIMEOUT_SEGUNDOS_DEFAULT,
 ):
     inicio_pdf = time.time()
     nombre_seguro = sanitizar_nombre_archivo(uploaded_file.name)
@@ -1120,6 +1285,7 @@ def procesar_pdf(
         "Nivel": "",
         "Prompt usado": "",
         "Modelo OpenCode": modelo_opencode or "Default OpenCode",
+        "Timeout OpenCode": formatear_duracion(timeout_opencode_segundos),
         "Nombre": "",
         "Programa al que aspira": "",
         "Plan": "",
@@ -1209,6 +1375,7 @@ def procesar_pdf(
         txt_path=txt_path,
         modelo_opencode=modelo_opencode,
         cwd=opencode_work_dir,
+        timeout_segundos=timeout_opencode_segundos,
     )
     guardar_json(opencode_json_path, resultado_opencode)
 
@@ -1299,205 +1466,6 @@ def procesar_pdf(
 
     return fila
 
-
-st.set_page_config(
-    page_title="PDF Batch Parser",
-    page_icon="📄",
-    layout="wide",
-)
-
-st.title("📄 Procesador por lote: LLMWhisperer + OpenCode CLI")
-
-st.write(
-    "Selecciona varios PDFs, edita el prompt una sola vez y ejecuta todo el flujo con un clic."
-)
-
-api_keys = obtener_api_keys_llmwhisperer()
-opencode_path = shutil.which("opencode")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    if api_keys:
-        st.success(f"✅ {len(api_keys)} API key(s) de LLMWhisperer encontradas")
-    else:
-        st.error("❌ No se encontraron API keys de LLMWhisperer en .env")
-
-with col2:
-    if opencode_path:
-        st.success(f"✅ OpenCode encontrado: {opencode_path}")
-    else:
-        st.error("❌ No se encontró OpenCode en el PATH")
-
-st.divider()
-
-st.header("1. Editar prompts para OpenCode")
-
-st.write(
-    "La app detectará automáticamente si cada PDF es de Pregrado o Posgrado y usará el prompt correspondiente."
-)
-
-tab_pregrado, tab_posgrado = st.tabs(["Prompt Pregrado", "Prompt Posgrado"])
-
-with tab_pregrado:
-    prompt_pregrado = st.text_area(
-        "Este prompt se usará cuando el PDF sea detectado como Pregrado.",
-        value=cargar_prompt_persistente(PROMPT_PREGRADO_PATH, PROMPT_PREGRADO),
-        height=340,
-        key="prompt_pregrado",
-    )
-
-with tab_posgrado:
-    prompt_posgrado = st.text_area(
-        "Este prompt se usará cuando el PDF sea detectado como Posgrado.",
-        value=cargar_prompt_persistente(PROMPT_POSGRADO_PATH, PROMPT_POSGRADO),
-        height=340,
-        key="prompt_posgrado",
-    )
-
-col_guardar_1, col_guardar_2 = st.columns([1, 3])
-
-with col_guardar_1:
-    if st.button("💾 Guardar prompts"):
-        guardar_prompt_persistente(PROMPT_PREGRADO_PATH, prompt_pregrado)
-        guardar_prompt_persistente(PROMPT_POSGRADO_PATH, prompt_posgrado)
-        st.success("✅ Prompts guardados correctamente")
-
-with col_guardar_2:
-    st.caption(f"Los prompts se guardan en: {PROMPTS_DIR}")
-
-st.header("2. Seleccionar modelo de OpenCode")
-
-if "modelos_opencode_resultado" not in st.session_state:
-    st.session_state.modelos_opencode_resultado = obtener_modelos_opencode(refresh=False)
-
-col_modelo_1, col_modelo_2 = st.columns([1, 3])
-
-with col_modelo_1:
-    if st.button("🔄 Actualizar modelos"):
-        with st.spinner("Consultando modelos con opencode models --refresh..."):
-            st.session_state.modelos_opencode_resultado = obtener_modelos_opencode(refresh=True)
-
-modelos_resultado = st.session_state.modelos_opencode_resultado
-modelos_detectados = modelos_resultado.get("models", [])
-
-opcion_default_modelo = "Usar modelo por defecto de OpenCode"
-
-opciones_modelo = [opcion_default_modelo] + modelos_detectados
-
-modelo_guardado_previo = cargar_modelo_opencode_persistente()
-
-indice_modelo_guardado = 0
-modelo_manual_guardado = ""
-
-if modelo_guardado_previo:
-    if modelo_guardado_previo in opciones_modelo:
-        indice_modelo_guardado = opciones_modelo.index(modelo_guardado_previo)
-    else:
-        modelo_manual_guardado = modelo_guardado_previo
-
-modelo_seleccionado_ui = st.selectbox(
-    "Modelo detectado por OpenCode",
-    options=opciones_modelo,
-    index=indice_modelo_guardado,
-    key="modelo_detectado_opencode",
-)
-
-modelo_manual = st.text_input(
-    "O escribe manualmente un modelo en formato provider/model",
-    value=modelo_manual_guardado,
-    placeholder="Ejemplo: opencode/deepseek-v4-flash-free",
-    key="modelo_manual_opencode",
-)
-
-if modelo_manual.strip():
-    modelo_opencode = modelo_manual.strip()
-else:
-    modelo_opencode = "" if modelo_seleccionado_ui == opcion_default_modelo else modelo_seleccionado_ui
-
-if modelo_opencode != modelo_guardado_previo:
-    guardar_modelo_opencode_persistente(modelo_opencode)
-
-if modelo_opencode:
-    st.success(f"✅ Modelo seleccionado: {modelo_opencode}")
-else:
-    st.info("Se usará el modelo por defecto de OpenCode.")
-
-st.caption(f"Último modelo recordado en: {MODELO_OPENCODE_PERSISTENTE_PATH}")
-
-if not modelos_resultado.get("ok"):
-    with st.expander("Ver error al listar modelos OpenCode"):
-        st.text_area(
-            "Salida de opencode models",
-            value=modelos_resultado.get("error", "") or modelos_resultado.get("raw", ""),
-            height=200,
-        )
-
-st.header("3. Seleccionar PDFs")
-
-if "pdf_uploader_version" not in st.session_state:
-    st.session_state["pdf_uploader_version"] = 0
-
-col_upload_1, col_upload_2 = st.columns([3, 1])
-
-with col_upload_1:
-    uploaded_files = st.file_uploader(
-        "Selecciona uno o varios archivos PDF",
-        type=["pdf"],
-        accept_multiple_files=True,
-        key=f"pdf_uploader_{st.session_state['pdf_uploader_version']}",
-    )
-
-with col_upload_2:
-    st.write("")
-    st.write("")
-    if st.button(
-        "🧹 Reemplazar tanda",
-        help="Limpia los PDFs cargados actualmente para seleccionar una nueva tanda sin quitar archivo por archivo.",
-        key="boton_reemplazar_tanda_pdfs",
-    ):
-        st.session_state["pdf_uploader_version"] += 1
-        reiniciar_app_streamlit()
-
-st.caption(
-    "Para procesar otra tanda, usa **🧹 Reemplazar tanda** y luego selecciona los nuevos PDFs. "
-    "Esto no borra los resultados del último procesamiento."
-)
-
-if uploaded_files:
-    st.info(f"📚 PDFs seleccionados: {len(uploaded_files)}")
-
-    with st.expander("Ver archivos seleccionados", expanded=False):
-        for file in uploaded_files:
-            st.write(f"- {file.name} ({len(file.getvalue())} bytes)")
-
-st.header("4. Configurar procesamiento paralelo")
-
-if uploaded_files:
-    max_workers_limite = min(6, len(uploaded_files))
-else:
-    max_workers_limite = 1
-
-if not uploaded_files:
-    max_workers_opencode = 1
-    st.info("Selecciona PDFs para configurar el procesamiento paralelo.")
-elif max_workers_limite <= 1:
-    max_workers_opencode = 1
-    st.info("Hay 1 PDF seleccionado. Se usará concurrencia = 1.")
-else:
-    max_workers_default = min(2, max_workers_limite)
-
-    max_workers_opencode = st.slider(
-        "Número de PDFs en paralelo",
-        min_value=1,
-        max_value=max_workers_limite,
-        value=max_workers_default,
-        step=1,
-    )
-
-st.caption(
-    "Recomendación inicial: usa 2 PDFs en paralelo. Luego prueba 3 o 4 y valida estabilidad, tiempos y errores."
-)
 
 
 def es_estado_error_reintentable(estado: str) -> bool:
@@ -1726,6 +1694,80 @@ def reconstruir_resultado_lote_combinado(
     }
 
 
+def crear_fila_error_timeout_lote(
+    nombre_archivo: str,
+    modelo_opencode: str,
+    inicio_archivo: float,
+    timeout_pdf_segundos: int,
+    fase_actual: str,
+    detalle: str = "",
+) -> dict:
+    """
+    Crea una fila final cuando el watchdog del lote detecta que un PDF activo
+    excedió el tiempo máximo permitido.
+
+    La ejecución interna puede seguir unos minutos en segundo plano, pero el lote
+    no queda bloqueado esperando ese PDF. El archivo queda como error reintentable.
+    """
+    fase = fase_actual or "Timeout del lote"
+    error = (
+        f"El PDF superó el tiempo máximo activo de {formatear_duracion(timeout_pdf_segundos)}. "
+        f"Última fase registrada: {fase}."
+    )
+
+    if detalle:
+        error += f" Detalle: {detalle}"
+
+    return {
+        "Archivo": sanitizar_nombre_archivo(nombre_archivo),
+        "Estado": "Error timeout lote",
+        "Fase actual": "Timeout del lote",
+        "Duración": formatear_duracion(time.time() - inicio_archivo),
+        "Worker dir": "Puede seguir activo temporalmente en segundo plano",
+        "Nivel": "",
+        "Prompt usado": "",
+        "Modelo OpenCode": modelo_opencode or "Default OpenCode",
+        "Timeout OpenCode": "",
+        "Nombre": "",
+        "Programa al que aspira": "",
+        "Plan": "",
+        "Programa origen": "",
+        "Créditos homologados": "",
+        "TXT LLMWhisperer": "",
+        "Respuesta OpenCode": "",
+        "Archivo AHK": "No generado",
+        "Error": error,
+    }
+
+
+def guardar_artifactos_parciales_lote(run_outputs_dir: Path, filas_por_indice: dict[int, dict]) -> None:
+    """
+    Guarda resultados parciales para no perder los PDF ya completados si otro PDF
+    queda trabado o si la sesión se interrumpe durante un lote grande.
+    """
+    try:
+        filas_parciales = [
+            filas_por_indice[index]
+            for index in sorted(filas_por_indice)
+        ]
+
+        if not filas_parciales:
+            return
+
+        parcial_csv_path = run_outputs_dir / "resumen_resultados_parcial.csv"
+        guardar_csv_resumen(parcial_csv_path, filas_parciales)
+
+        filas_error = obtener_filas_con_error(filas_parciales)
+        errores_parcial_path = run_outputs_dir / "resumen_errores_reintentables_parcial.csv"
+
+        if filas_error:
+            guardar_csv_resumen(errores_parcial_path, filas_error)
+
+        crear_zip_ahk(run_outputs_dir, filas_parciales)
+    except Exception:
+        pass
+
+
 def ejecutar_lote_streamlit(
     pdf_jobs: list[ArchivoSubidoEnMemoria],
     prompt_pregrado: str,
@@ -1734,6 +1776,8 @@ def ejecutar_lote_streamlit(
     max_workers_opencode: int,
     etiqueta_boton: str = "Procesamiento",
     parent_run_id: str | None = None,
+    timeout_pdf_segundos: int = PDF_TIMEOUT_SEGUNDOS_DEFAULT,
+    timeout_opencode_segundos: int = OPENCODE_TIMEOUT_SEGUNDOS_DEFAULT,
 ) -> dict:
     """
     Ejecuta un lote completo y renderiza progreso en Streamlit.
@@ -1750,6 +1794,7 @@ def ejecutar_lote_streamlit(
     prompt_posgrado_path = run_outputs_dir / "prompt_posgrado.txt"
     modelo_opencode_path = run_outputs_dir / "modelo_opencode.txt"
     concurrencia_path = run_outputs_dir / "concurrencia.txt"
+    timeouts_path = run_outputs_dir / "timeouts.txt"
     metadata_path = run_outputs_dir / "metadata_lote.json"
 
     with open(prompt_pregrado_path, "w", encoding="utf-8") as f:
@@ -1764,6 +1809,22 @@ def ejecutar_lote_streamlit(
     with open(concurrencia_path, "w", encoding="utf-8") as f:
         f.write(str(max_workers_opencode))
 
+    with open(timeouts_path, "w", encoding="utf-8") as f:
+        f.write(
+            f"Timeout PDF activo: {formatear_duracion(timeout_pdf_segundos)}\n"
+            f"Timeout OpenCode: {formatear_duracion(timeout_opencode_segundos)}\n"
+        )
+
+    # Guardado preventivo de todos los PDFs del lote.
+    # Así los PDFs que no alcancen a iniciar por un bloqueo también quedan disponibles para reintento.
+    for job in pdf_jobs:
+        try:
+            pdf_inicial_path = run_uploads_dir / sanitizar_nombre_archivo(job.name)
+            if not pdf_inicial_path.exists():
+                pdf_inicial_path.write_bytes(job.getbuffer())
+        except Exception:
+            pass
+
     guardar_json(metadata_path, {
         "run_id": run_id,
         "tipo_lote": etiqueta_boton,
@@ -1771,6 +1832,8 @@ def ejecutar_lote_streamlit(
         "total_archivos": len(pdf_jobs),
         "modelo_opencode": modelo_opencode or "Default OpenCode",
         "concurrencia": max_workers_opencode,
+        "timeout_pdf_segundos": timeout_pdf_segundos,
+        "timeout_opencode_segundos": timeout_opencode_segundos,
         "fecha": datetime.now().isoformat(timespec="seconds"),
     })
 
@@ -1788,6 +1851,8 @@ def ejecutar_lote_streamlit(
     eventos_progreso = Queue()
     filas_por_indice = {}
     estado_por_indice = {}
+    inicio_real_por_indice = {}
+    indices_cerrados = set()
 
     for index, job in enumerate(pdf_jobs, start=1):
         estado_por_indice[index] = {
@@ -1863,6 +1928,8 @@ def ejecutar_lote_streamlit(
         status_placeholder.info(
             f"🚀 {etiqueta_boton} activo\n\n"
             f"**PDFs en paralelo configurados:** {max_workers_opencode}\n\n"
+            f"**Timeout PDF activo:** {formatear_duracion(timeout_pdf_segundos)}\n"
+            f"**Timeout OpenCode:** {formatear_duracion(timeout_opencode_segundos)}\n\n"
             f"**Activos:**\n{activos_txt}"
         )
 
@@ -1892,6 +1959,13 @@ def ejecutar_lote_streamlit(
                 break
 
             index = evento["index"]
+
+            if index in indices_cerrados:
+                continue
+
+            if index not in inicio_real_por_indice:
+                inicio_real_por_indice[index] = evento.get("ts") or time.time()
+
             avance_pdf = max(0.0, min(1.0, float(evento.get("avance_pdf") or 0)))
 
             estado = estado_por_indice[index]
@@ -1909,17 +1983,31 @@ def ejecutar_lote_streamlit(
             run_uploads_dir=run_uploads_dir,
             run_outputs_dir=run_outputs_dir,
             progress_callback=crear_callback(index, job.name),
+            timeout_opencode_segundos=timeout_opencode_segundos,
         )
 
     renderizar_estado()
 
     workers = max(1, min(int(max_workers_opencode or 1), total or 1))
 
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        futuros = {
-            executor.submit(ejecutar_job, index, job): (index, job.name, time.time())
-            for index, job in enumerate(pdf_jobs, start=1)
-        }
+    executor = ThreadPoolExecutor(max_workers=workers)
+    futuros = {}
+    pendientes = list(enumerate(pdf_jobs, start=1))
+    trabajos_enviados = set()
+
+    def enviar_siguiente_job() -> bool:
+        if not pendientes:
+            return False
+
+        index, job = pendientes.pop(0)
+        trabajos_enviados.add(index)
+        futuros[executor.submit(ejecutar_job, index, job)] = (index, job.name, time.time())
+        return True
+
+    try:
+        for _ in range(workers):
+            if not enviar_siguiente_job():
+                break
 
         while futuros:
             consumir_eventos_progreso()
@@ -1930,8 +2018,13 @@ def ejecutar_lote_streamlit(
                 return_when=FIRST_COMPLETED,
             )
 
+            jobs_completados_en_iteracion = 0
+
             for futuro in done:
                 index, nombre_archivo, inicio_archivo = futuros.pop(futuro)
+
+                if index in indices_cerrados:
+                    continue
 
                 try:
                     fila = futuro.result()
@@ -1945,6 +2038,7 @@ def ejecutar_lote_streamlit(
                         "Nivel": "",
                         "Prompt usado": "",
                         "Modelo OpenCode": modelo_opencode or "Default OpenCode",
+                        "Timeout OpenCode": formatear_duracion(timeout_opencode_segundos),
                         "Nombre": "",
                         "Programa al que aspira": "",
                         "Plan": "",
@@ -1957,6 +2051,8 @@ def ejecutar_lote_streamlit(
                     }
 
                 filas_por_indice[index] = fila
+                indices_cerrados.add(index)
+                jobs_completados_en_iteracion += 1
 
                 estado_por_indice[index].update({
                     "Estado": fila.get("Estado", "Finalizado"),
@@ -1968,8 +2064,110 @@ def ejecutar_lote_streamlit(
                     "Error": fila.get("Error", ""),
                 })
 
+                guardar_artifactos_parciales_lote(run_outputs_dir, filas_por_indice)
+
+            # Solo se envían nuevos trabajos cuando un worker terminó realmente.
+            # Si un worker se marcó por timeout, no asumimos que el hilo quedó libre.
+            for _ in range(jobs_completados_en_iteracion):
+                enviar_siguiente_job()
+
+            ahora = time.time()
+            futuros_timeout = []
+
+            for futuro, (index, nombre_archivo, inicio_submit) in list(futuros.items()):
+                if index in indices_cerrados:
+                    futuros_timeout.append((futuro, index, nombre_archivo, inicio_submit))
+                    continue
+
+                inicio_real = inicio_real_por_indice.get(index)
+
+                # No se aplica timeout a PDFs que todavía están en cola y no han empezado.
+                if not inicio_real:
+                    continue
+
+                if ahora - inicio_real >= timeout_pdf_segundos:
+                    futuros_timeout.append((futuro, index, nombre_archivo, inicio_real))
+
+            for futuro, index, nombre_archivo, inicio_archivo in futuros_timeout:
+                if futuro not in futuros:
+                    continue
+
+                futuros.pop(futuro, None)
+                indices_cerrados.add(index)
+
+                estado_actual = estado_por_indice.get(index, {})
+                fila_timeout = crear_fila_error_timeout_lote(
+                    nombre_archivo=nombre_archivo,
+                    modelo_opencode=modelo_opencode,
+                    inicio_archivo=inicio_archivo,
+                    timeout_pdf_segundos=timeout_pdf_segundos,
+                    fase_actual=estado_actual.get("Fase actual", ""),
+                    detalle=estado_actual.get("Detalle", ""),
+                )
+
+                filas_por_indice[index] = fila_timeout
+
+                try:
+                    futuro.cancel()
+                except Exception:
+                    pass
+
+                estado_por_indice[index].update({
+                    "Estado": fila_timeout.get("Estado", "Error timeout lote"),
+                    "Fase actual": fila_timeout.get("Fase actual", "Timeout del lote"),
+                    "Avance PDF": "100%",
+                    "Duración": fila_timeout.get("Duración", ""),
+                    "Detalle": fila_timeout.get("Error", ""),
+                    "Archivo AHK": "No generado",
+                    "Error": fila_timeout.get("Error", ""),
+                })
+
+                guardar_artifactos_parciales_lote(run_outputs_dir, filas_por_indice)
+
             renderizar_estado()
 
+        # Si todos los workers activos quedaron bloqueados y aún había PDFs sin iniciar,
+        # no los dejamos invisibles. Se marcan como reintentables para que el lote cierre.
+        if pendientes:
+            for index, job in pendientes:
+                fila_no_iniciado = crear_fila_error_timeout_lote(
+                    nombre_archivo=job.name,
+                    modelo_opencode=modelo_opencode,
+                    inicio_archivo=time.time(),
+                    timeout_pdf_segundos=timeout_pdf_segundos,
+                    fase_actual="No iniciado por bloqueo de workers",
+                    detalle=(
+                        "No se procesó porque los workers activos quedaron bloqueados o cerrados por timeout. "
+                        "Puedes reintentarlo desde la sección de errores."
+                    ),
+                )
+                fila_no_iniciado["Estado"] = "Error no iniciado"
+                fila_no_iniciado["Fase actual"] = "No iniciado"
+
+                filas_por_indice[index] = fila_no_iniciado
+                indices_cerrados.add(index)
+
+                estado_por_indice[index].update({
+                    "Estado": fila_no_iniciado.get("Estado", "Error no iniciado"),
+                    "Fase actual": fila_no_iniciado.get("Fase actual", "No iniciado"),
+                    "Avance PDF": "100%",
+                    "Duración": fila_no_iniciado.get("Duración", ""),
+                    "Detalle": fila_no_iniciado.get("Error", ""),
+                    "Archivo AHK": "No generado",
+                    "Error": fila_no_iniciado.get("Error", ""),
+                })
+
+            pendientes.clear()
+            guardar_artifactos_parciales_lote(run_outputs_dir, filas_por_indice)
+            renderizar_estado()
+
+    finally:
+        # No esperamos indefinidamente a threads que puedan haber quedado bloqueados.
+        # Los PDFs cerrados por timeout ya quedan en la tabla como reintentables.
+        try:
+            executor.shutdown(wait=False, cancel_futures=True)
+        except TypeError:
+            executor.shutdown(wait=False)
     consumir_eventos_progreso()
     renderizar_estado()
 
@@ -2048,6 +2246,7 @@ def ejecutar_lote_streamlit(
     st.write(f"**Prompt Posgrado:** `{prompt_posgrado_path}`")
     st.write(f"**Modelo OpenCode:** `{modelo_opencode_path}`")
     st.write(f"**Concurrencia usada:** `{concurrencia_path}`")
+    st.write(f"**Timeouts usados:** `{timeouts_path}`")
     st.write(f"**CSV generado:** `{resumen_csv_path}`")
 
     if errores_csv_path:
@@ -2066,6 +2265,9 @@ def ejecutar_lote_streamlit(
         "resumen_csv_path": str(resumen_csv_path),
         "errores_csv_path": str(errores_csv_path) if errores_csv_path else "",
         "zip_ahk_path": str(zip_ahk_path) if zip_ahk_path else "",
+        "timeouts_path": str(timeouts_path),
+        "timeout_pdf_segundos": timeout_pdf_segundos,
+        "timeout_opencode_segundos": timeout_opencode_segundos,
     }
 
     st.session_state["ultimo_lote"] = resultado_lote
@@ -2199,17 +2401,522 @@ def renderizar_resultado_lote_guardado(resultado_lote: dict | None) -> None:
     if zip_ahk_path:
         st.write(f"**ZIP AHK generado:** `{zip_ahk_path}`")
 
+st.set_page_config(
+    page_title="PDF Batch Parser",
+    page_icon="📄",
+    layout="wide",
+)
+
+st.markdown(
+    """
+    <style>
+    .main .block-container {
+        padding-top: 1.1rem;
+        padding-bottom: 2rem;
+        max-width: 1500px;
+    }
+    h1, h2, h3 {
+        letter-spacing: -0.02em;
+    }
+    .app-shell {
+        background: linear-gradient(135deg, #0f172a 0%, #162b63 55%, #1d4ed8 100%);
+        border-radius: 22px;
+        padding: 1.2rem 1.35rem;
+        color: white;
+        margin-bottom: 0.95rem;
+        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18);
+    }
+    .app-shell h1 {
+        margin: 0;
+        font-size: 2.0rem;
+        line-height: 1.1;
+        color: white;
+    }
+    .app-shell p {
+        margin: 0.28rem 0 0 0;
+        color: rgba(255,255,255,0.86);
+        font-size: 1rem;
+    }
+    .header-grid {
+        display:flex;
+        align-items:flex-start;
+        justify-content:space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+    .chip-row {
+        display:flex;
+        gap: 0.7rem;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-end;
+    }
+    .status-chip {
+        min-width: 175px;
+        background: rgba(255,255,255,0.08);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 16px;
+        padding: 0.7rem 0.9rem;
+        backdrop-filter: blur(8px);
+    }
+    .status-chip .label {
+        display:block;
+        font-size: 0.78rem;
+        color: rgba(255,255,255,0.82);
+        margin-bottom: 0.15rem;
+    }
+    .status-chip .value {
+        display:block;
+        font-size: 0.98rem;
+        font-weight: 700;
+        color: #bbf7d0;
+    }
+    .panel-title {
+        font-size: 1.2rem;
+        font-weight: 700;
+        margin-bottom: 0.25rem;
+        color: #0f172a;
+    }
+    .panel-subtitle {
+        color: #64748b;
+        font-size: 0.95rem;
+        margin-bottom: 0.8rem;
+    }
+    div[data-testid="stExpander"] details {
+        border: 1px solid #dbe4f0;
+        border-radius: 14px;
+        background: #ffffff;
+    }
+    div[data-testid="stExpander"] summary {
+        font-size: 1rem;
+        font-weight: 600;
+    }
+    div[data-testid="stVerticalBlock"] div[data-testid="stButton"] > button {
+        border-radius: 12px;
+        font-weight: 700;
+    }
+    div[data-testid="stDownloadButton"] > button {
+        width: 100%;
+        border-radius: 12px;
+        font-weight: 700;
+    }
+    .primary-cta-note {
+        color: #64748b;
+        font-size: 0.92rem;
+        margin-top: 0.4rem;
+    }
+    .mini-note {
+        font-size: 0.85rem;
+        color: #64748b;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+def construir_estado_chip(label: str, value: str) -> str:
+    return f"""
+    <div class=\"status-chip\">
+        <span class=\"label\">{label}</span>
+        <span class=\"value\">{value}</span>
+    </div>
+    """
+
+
+def resumen_para_panel(resultado_lote: dict | None, total_seleccionados: int) -> dict:
+    if resultado_lote and (resultado_lote.get("filas") or []):
+        filas = resultado_lote.get("filas") or []
+        filas_error = resultado_lote.get("filas_error") or obtener_filas_con_error(filas)
+        total = len(filas)
+        completados = sum(1 for f in filas if f.get("Estado") == "Completado")
+        detenidos = sum(
+            1
+            for f in filas
+            if "detenido" in quitar_tildes(str(f.get("Estado", ""))).lower()
+        )
+        errores = len(filas_error)
+        progreso = 100 if total else 0
+        procesados = total
+        zip_ahk_path = resultado_lote.get("zip_ahk_path", "")
+        run_id = resultado_lote.get("run_id", "")
+        return {
+            "completados": completados,
+            "errores": errores,
+            "detenidos": detenidos,
+            "reintentos": errores,
+            "progreso": progreso,
+            "procesados": procesados,
+            "total": total,
+            "zip_ahk_path": zip_ahk_path,
+            "run_id": run_id,
+            "tiene_resultado": True,
+        }
+
+    return {
+        "completados": 0,
+        "errores": 0,
+        "detenidos": 0,
+        "reintentos": 0,
+        "progreso": 0,
+        "procesados": 0,
+        "total": total_seleccionados,
+        "zip_ahk_path": "",
+        "run_id": "",
+        "tiene_resultado": False,
+    }
+
+
+api_keys = obtener_api_keys_llmwhisperer()
+opencode_path = shutil.which("opencode")
+ultimo_lote = st.session_state.get("ultimo_lote")
+
+api_value = f"Conectado ({len(api_keys)} key(s))" if api_keys else "Sin API key"
+opencode_value = "Disponible" if opencode_path else "No encontrado"
+
+st.markdown(
+    f"""
+    <div class=\"app-shell\">
+      <div class=\"header-grid\">
+        <div>
+          <h1>Procesador por lote</h1>
+          <p>LLMWhisperer + OpenCode CLI · interfaz compacta para configurar, cargar y procesar sin casi hacer scroll.</p>
+        </div>
+        <div class=\"chip-row\">
+          {construir_estado_chip("API keys LLMWhisperer", api_value)}
+          {construir_estado_chip("OpenCode", opencode_value)}
+          {construir_estado_chip("Prompts", "Pregrado y Posgrado")}
+        </div>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+if "modelos_opencode_resultado" not in st.session_state:
+    st.session_state.modelos_opencode_resultado = obtener_modelos_opencode(refresh=False)
+
+if "pdf_uploader_version" not in st.session_state:
+    st.session_state["pdf_uploader_version"] = 0
+
+prompt_pregrado = cargar_prompt_persistente(PROMPT_PREGRADO_PATH, PROMPT_PREGRADO)
+prompt_posgrado = cargar_prompt_persistente(PROMPT_POSGRADO_PATH, PROMPT_POSGRADO)
+
+modelos_resultado = st.session_state.modelos_opencode_resultado
+modelos_detectados = modelos_resultado.get("models", [])
+opcion_default_modelo = "Usar modelo por defecto de OpenCode"
+opciones_modelo = [opcion_default_modelo] + modelos_detectados
+
+modelo_guardado_previo = cargar_modelo_opencode_persistente()
+indice_modelo_guardado = 0
+modelo_manual_guardado = ""
+if modelo_guardado_previo:
+    if modelo_guardado_previo in opciones_modelo:
+        indice_modelo_guardado = opciones_modelo.index(modelo_guardado_previo)
+    else:
+        modelo_manual_guardado = modelo_guardado_previo
+
+timeouts_persistidos = cargar_timeouts_persistentes()
+
+with st.container():
+    col_left, col_center, col_right = st.columns([1.05, 1.65, 1.0], gap="large")
+
+    with col_left:
+        st.markdown('<div class="panel-title">⚡ Configuración rápida</div>', unsafe_allow_html=True)
+        st.markdown('<div class="panel-subtitle">Define el modelo, ajusta los prompts y deja guardadas las tolerancias del procesamiento.</div>', unsafe_allow_html=True)
+
+        if st.button("🔄 Actualizar modelos", use_container_width=True, key="btn_actualizar_modelos_rapido"):
+            with st.spinner("Consultando modelos con opencode models --refresh..."):
+                st.session_state.modelos_opencode_resultado = obtener_modelos_opencode(refresh=True)
+                modelos_resultado = st.session_state.modelos_opencode_resultado
+                modelos_detectados = modelos_resultado.get("models", [])
+                opciones_modelo = [opcion_default_modelo] + modelos_detectados
+
+        modelo_seleccionado_ui = st.selectbox(
+            "Modelo OpenCode",
+            options=opciones_modelo,
+            index=min(indice_modelo_guardado, max(0, len(opciones_modelo) - 1)),
+            key="modelo_detectado_opencode",
+            help="Selecciona un modelo detectado automáticamente por OpenCode o escribe uno manualmente más abajo.",
+        )
+
+        modelo_manual = st.text_input(
+            "Modelo manual (opcional)",
+            value=modelo_manual_guardado,
+            placeholder="Ejemplo: provider/model",
+            key="modelo_manual_opencode",
+        )
+
+        if modelo_manual.strip():
+            modelo_opencode = modelo_manual.strip()
+        else:
+            modelo_opencode = "" if modelo_seleccionado_ui == opcion_default_modelo else modelo_seleccionado_ui
+
+        if modelo_opencode != modelo_guardado_previo:
+            guardar_modelo_opencode_persistente(modelo_opencode)
+
+        if modelo_opencode:
+            st.success(f"Modelo activo: {modelo_opencode}")
+        else:
+            st.info("Se usará el modelo por defecto de OpenCode.")
+
+        with st.expander("📝 Prompt Pregrado", expanded=False):
+            prompt_pregrado = st.text_area(
+                "Edita el prompt de Pregrado",
+                value=prompt_pregrado,
+                height=250,
+                key="prompt_pregrado",
+                label_visibility="collapsed",
+            )
+            st.caption(f"Ruta: {PROMPT_PREGRADO_PATH}")
+
+        with st.expander("📝 Prompt Posgrado", expanded=False):
+            prompt_posgrado = st.text_area(
+                "Edita el prompt de Posgrado",
+                value=prompt_posgrado,
+                height=250,
+                key="prompt_posgrado",
+                label_visibility="collapsed",
+            )
+            st.caption(f"Ruta: {PROMPT_POSGRADO_PATH}")
+
+        if st.button("💾 Guardar prompts", use_container_width=True, key="btn_guardar_prompts_redisenado"):
+            guardar_prompt_persistente(PROMPT_PREGRADO_PATH, prompt_pregrado)
+            guardar_prompt_persistente(PROMPT_POSGRADO_PATH, prompt_posgrado)
+            st.success("Prompts guardados correctamente.")
+
+        st.markdown("#### Tolerancia a bloqueos y timeouts")
+        col_timeout_1, col_timeout_2 = st.columns(2)
+
+        with col_timeout_1:
+            timeout_opencode_minutos = st.number_input(
+                "OpenCode (min)",
+                min_value=5,
+                max_value=45,
+                value=int(timeouts_persistidos["timeout_opencode_minutos"]),
+                step=5,
+                key="timeout_opencode_minutos",
+                help="Si OpenCode supera este tiempo en un PDF, se cancela esa llamada y el PDF queda como error reintentable.",
+            )
+
+        with col_timeout_2:
+            timeout_pdf_minutos = st.number_input(
+                "PDF activo (min)",
+                min_value=10,
+                max_value=90,
+                value=int(timeouts_persistidos["timeout_pdf_minutos"]),
+                step=5,
+                key="timeout_pdf_minutos",
+                help="Protección externa del lote: si un PDF activo supera este tiempo, se marca como timeout para que el lote pueda cerrar.",
+            )
+
+        timeout_opencode_segundos = int(timeout_opencode_minutos) * 60
+        timeout_pdf_segundos = int(timeout_pdf_minutos) * 60
+
+        if (
+            int(timeout_opencode_minutos) != int(timeouts_persistidos["timeout_opencode_minutos"])
+            or int(timeout_pdf_minutos) != int(timeouts_persistidos["timeout_pdf_minutos"])
+            or not TIMEOUTS_PERSISTENTES_PATH.exists()
+        ):
+            guardar_timeouts_persistentes(
+                timeout_opencode_minutos=int(timeout_opencode_minutos),
+                timeout_pdf_minutos=int(timeout_pdf_minutos),
+            )
+
+        max_workers_limite_ui = 1
+        st.markdown("#### PDFs en paralelo")
+        st.caption("Recomendado: 2 a 6 procesos simultáneos. Máximo permitido: 12 para equipos/proveedores estables.")
+
+        # Este slider se ajustará realmente después de seleccionar archivos, pero se muestra desde ya.
+        max_workers_opencode = st.slider(
+            "Procesos simultáneos",
+            min_value=1,
+            max_value=12,
+            value=3,
+            step=1,
+            key="max_workers_opencode_ui_base",
+        )
+
+        if max_workers_opencode > 6:
+            st.warning(
+                "Modo de alta concurrencia activo. Más de 6 procesos simultáneos puede aumentar errores por límites de API, saturación de OpenCode o timeouts. "
+                "Úsalo gradualmente y valida primero con una tanda pequeña."
+            )
+
+        st.info(
+            "Si un PDF se queda colgado, la app lo marcará como error reintentable y seguirá construyendo el resumen y el ZIP con los AHK que sí se generaron."
+        )
+        st.caption(
+            f"Configuración persistente: {TIMEOUTS_PERSISTENTES_PATH} · OpenCode: {timeout_opencode_minutos} min ({timeout_opencode_segundos} s) · PDF activo: {timeout_pdf_minutos} min ({timeout_pdf_segundos} s)"
+        )
+
+        if not modelos_resultado.get("ok"):
+            with st.expander("Ver error al listar modelos OpenCode", expanded=False):
+                st.text_area(
+                    "Salida de opencode models",
+                    value=modelos_resultado.get("error", "") or modelos_resultado.get("raw", ""),
+                    height=180,
+                )
+
+    with col_center:
+        st.markdown('<div class="panel-title">📂 Carga de PDFs</div>', unsafe_allow_html=True)
+        st.markdown('<div class="panel-subtitle">Carga los archivos, revisa la tanda y dispara el procesamiento completo desde esta zona central.</div>', unsafe_allow_html=True)
+
+        col_upload_title, col_upload_action = st.columns([3, 1])
+        with col_upload_title:
+            st.caption("Arrastra y suelta tus PDFs o selecciónalos manualmente.")
+        with col_upload_action:
+            if st.button(
+                "🧹 Reemplazar tanda",
+                help="Limpia los PDFs cargados actualmente para seleccionar una nueva tanda.",
+                key="boton_reemplazar_tanda_pdfs",
+                use_container_width=True,
+            ):
+                st.session_state["pdf_uploader_version"] += 1
+                reiniciar_app_streamlit()
+
+        uploaded_files = st.file_uploader(
+            "Selecciona uno o varios archivos PDF",
+            type=["pdf"],
+            accept_multiple_files=True,
+            key=f"pdf_uploader_{st.session_state['pdf_uploader_version']}",
+            label_visibility="collapsed",
+        )
+
+        if uploaded_files:
+            max_workers_limite_ui = min(12, len(uploaded_files))
+            max_workers_opencode = max(1, min(int(max_workers_opencode), max_workers_limite_ui))
+            if max_workers_limite_ui == 1:
+                max_workers_opencode = 1
+            st.success(f"📚 {len(uploaded_files)} PDF(s) listos para procesar")
+        else:
+            max_workers_limite_ui = 1
+            st.info("Todavía no hay PDFs cargados.")
+
+        if uploaded_files:
+            archivos_rows = [
+                {
+                    "Archivo": file.name,
+                    "Tamaño (KB)": round(len(file.getvalue()) / 1024, 1),
+                }
+                for file in uploaded_files
+            ]
+            with st.expander(f"Vista previa del lote · {len(archivos_rows)} archivo(s)", expanded=True):
+                st.dataframe(archivos_rows, use_container_width=True, hide_index=True, height=min(310, 36 * (len(archivos_rows) + 1)))
+        else:
+            with st.expander("Vista previa del lote", expanded=False):
+                st.caption("Aquí aparecerán los PDFs cargados para revisión rápida.")
+
+        requisitos_faltantes = []
+        if not uploaded_files:
+            requisitos_faltantes.append("cargar al menos un PDF")
+        if not prompt_pregrado.strip():
+            requisitos_faltantes.append("definir el prompt de Pregrado")
+        if not prompt_posgrado.strip():
+            requisitos_faltantes.append("definir el prompt de Posgrado")
+        if not api_keys:
+            requisitos_faltantes.append("configurar API keys de LLMWhisperer")
+        if not opencode_path:
+            requisitos_faltantes.append("tener OpenCode disponible en el PATH")
+
+        disabled = len(requisitos_faltantes) > 0
+        procesar_click = st.button(
+            "▶ Iniciar procesamiento",
+            disabled=disabled,
+            use_container_width=True,
+            type="primary",
+            key="btn_iniciar_procesamiento_principal",
+        )
+
+        if disabled:
+            st.warning("Antes de iniciar, falta: " + ", ".join(requisitos_faltantes) + ".")
+        else:
+            st.markdown('<div class="primary-cta-note">El procesamiento es seguro y todos los archivos se manejan localmente dentro del lote actual.</div>', unsafe_allow_html=True)
+
+    with col_right:
+        st.markdown('<div class="panel-title">📊 Resumen del lote</div>', unsafe_allow_html=True)
+        st.markdown('<div class="panel-subtitle">Métricas rápidas del último resultado disponible o de la tanda actual seleccionada.</div>', unsafe_allow_html=True)
+
+        total_seleccionados = len(uploaded_files) if uploaded_files else 0
+        resumen = resumen_para_panel(ultimo_lote, total_seleccionados)
+
+        metric_row_1_col_1, metric_row_1_col_2 = st.columns(2)
+        metric_row_2_col_1, metric_row_2_col_2 = st.columns(2)
+
+        metric_row_1_col_1.metric("Completados", resumen["completados"])
+        metric_row_1_col_2.metric("Errores", resumen["errores"])
+        metric_row_2_col_1.metric("Detenidos", resumen["detenidos"])
+        metric_row_2_col_2.metric("Reintentos", resumen["reintentos"])
+
+        st.markdown("**Progreso general**")
+        st.progress(int(resumen["progreso"]))
+        st.caption(f"{resumen['procesados']} de {resumen['total']} PDFs procesados")
+
+        if resumen["run_id"]:
+            st.caption(f"Último lote disponible: `{resumen['run_id']}`")
+
+        zip_ahk_path_panel = resumen.get("zip_ahk_path") or ""
+        if zip_ahk_path_panel:
+            path_zip_panel = Path(zip_ahk_path_panel)
+            if path_zip_panel.exists() and path_zip_panel.is_file():
+                with open(path_zip_panel, "rb") as f:
+                    st.download_button(
+                        label="⬇️ Descargar ZIP AHK",
+                        data=f,
+                        file_name="scripts_ahk.zip",
+                        mime="application/zip",
+                        use_container_width=True,
+                        key=f"descarga_zip_panel_{resumen['run_id'] or 'sin_run'}",
+                    )
+            else:
+                st.caption("El ZIP AHK del último lote ya no está disponible en disco.")
+        else:
+            st.button("⬇️ Descargar ZIP AHK", disabled=True, use_container_width=True, key="zip_ahk_deshabilitado_panel")
+            st.caption("El ZIP se habilitará cuando exista un lote con AHK generados.")
+
+        filas_error_panel = (ultimo_lote or {}).get("filas_error", []) if ultimo_lote else []
+        if filas_error_panel:
+            st.warning(f"Hay {len(filas_error_panel)} archivo(s) con error reintentable.")
+            max_workers_retry_limite = min(max(1, max_workers_opencode), len(filas_error_panel)) if filas_error_panel else 1
+            max_workers_retry_limite = max(1, max_workers_retry_limite)
+            concurrencia_reintento = st.slider(
+                "Paralelo en reintento",
+                min_value=1,
+                max_value=max_workers_retry_limite,
+                value=max_workers_retry_limite,
+                step=1,
+                key=f"concurrencia_reintento_panel_{(ultimo_lote or {}).get('run_id','sin_run')}",
+            )
+            reintentar_click = st.button(
+                f"🔁 Reintentar {len(filas_error_panel)} PDF(s) con error",
+                disabled=not api_keys or not opencode_path,
+                use_container_width=True,
+                key=f"boton_reintentar_panel_{(ultimo_lote or {}).get('run_id','sin_run')}",
+            )
+        else:
+            concurrencia_reintento = 1
+            reintentar_click = False
+            if ultimo_lote:
+                st.success("No hay errores reintentables en el último lote.")
+            else:
+                st.info("Después de tu primer procesamiento, aquí verás el resumen consolidado y los reintentos.")
+
+        with st.expander("Actividad y rutas del lote", expanded=False):
+            if ultimo_lote:
+                st.write(f"**Run ID:** `{ultimo_lote.get('run_id', '')}`")
+                st.write(f"**Carpeta de salida:** `{ultimo_lote.get('run_outputs_dir', '')}`")
+                st.write(f"**CSV resultados:** `{ultimo_lote.get('resumen_csv_path', '')}`")
+                if ultimo_lote.get("errores_csv_path"):
+                    st.write(f"**CSV errores:** `{ultimo_lote.get('errores_csv_path', '')}`")
+            else:
+                st.caption("Aún no hay actividad registrada en esta sesión.")
 
 lote_ejecutado_en_esta_corrida = False
 
-st.header("5. Ejecutar procesamiento completo")
-
-disabled = not uploaded_files or not prompt_pregrado.strip() or not prompt_posgrado.strip() or not api_keys or not opencode_path
-
-if st.button("🚀 Procesar PDFs con LLMWhisperer + OpenCode", disabled=disabled):
+if procesar_click:
     pdf_jobs = [
         ArchivoSubidoEnMemoria(file.name, file.getvalue())
-        for file in uploaded_files
+        for file in (uploaded_files or [])
     ]
 
     ejecutar_lote_streamlit(
@@ -2219,87 +2926,65 @@ if st.button("🚀 Procesar PDFs con LLMWhisperer + OpenCode", disabled=disabled
         modelo_opencode=modelo_opencode,
         max_workers_opencode=max_workers_opencode,
         etiqueta_boton="Procesamiento por lote",
+        timeout_pdf_segundos=timeout_pdf_segundos,
+        timeout_opencode_segundos=timeout_opencode_segundos,
     )
     lote_ejecutado_en_esta_corrida = True
+    ultimo_lote = st.session_state.get("ultimo_lote")
 
-st.header("6. Reintentar solo PDFs con error")
+if 'reintentar_click' in locals() and reintentar_click:
+    ultimo_lote = st.session_state.get("ultimo_lote")
+    filas_error = (ultimo_lote or {}).get("filas_error", [])
+    run_id_anterior = (ultimo_lote or {}).get("run_id", "")
 
-ultimo_lote = st.session_state.get("ultimo_lote")
+    if filas_error:
+        pdf_jobs_retry, no_encontrados = cargar_pdf_jobs_desde_lote(run_id_anterior, filas_error)
 
-if not ultimo_lote:
-    st.info("Después de ejecutar un lote, aquí aparecerán los archivos que quedaron con error para poder reintentarlos.")
-else:
-    filas_error = ultimo_lote.get("filas_error", [])
-    run_id_anterior = ultimo_lote.get("run_id", "")
+        if no_encontrados:
+            st.error(
+                "No se pudieron encontrar estos PDFs originales para reintentar: "
+                + ", ".join(no_encontrados)
+            )
 
-    if not filas_error:
-        st.success("✅ El último lote no tiene archivos con error reintentable.")
-    else:
-        st.warning(
-            f"Se encontraron {len(filas_error)} archivo(s) con error reintentable en el lote `{run_id_anterior}`."
-        )
-        st.dataframe(filas_error, use_container_width=True)
+        if pdf_jobs_retry:
+            resultado_base_antes_reintento = dict(ultimo_lote)
 
-        max_workers_retry_limite = min(max_workers_opencode, len(filas_error)) if filas_error else 1
-        max_workers_retry_limite = max(1, max_workers_retry_limite)
+            resultado_reintento = ejecutar_lote_streamlit(
+                pdf_jobs=pdf_jobs_retry,
+                prompt_pregrado=prompt_pregrado,
+                prompt_posgrado=prompt_posgrado,
+                modelo_opencode=modelo_opencode,
+                max_workers_opencode=concurrencia_reintento,
+                etiqueta_boton="Reintento de errores",
+                parent_run_id=run_id_anterior,
+                timeout_pdf_segundos=timeout_pdf_segundos,
+                timeout_opencode_segundos=timeout_opencode_segundos,
+            )
 
-        concurrencia_reintento = st.slider(
-            "Número de PDFs en paralelo para el reintento",
-            min_value=1,
-            max_value=max_workers_retry_limite,
-            value=max_workers_retry_limite,
-            step=1,
-            key=f"concurrencia_reintento_{run_id_anterior}",
-        )
+            resultado_combinado = reconstruir_resultado_lote_combinado(
+                resultado_base=resultado_base_antes_reintento,
+                resultado_reintento=resultado_reintento,
+            )
 
-        if st.button(
-            f"🔁 Reintentar solo los {len(filas_error)} PDF(s) con error",
-            disabled=not api_keys or not opencode_path,
-            key=f"boton_reintentar_{run_id_anterior}",
-        ):
-            pdf_jobs_retry, no_encontrados = cargar_pdf_jobs_desde_lote(run_id_anterior, filas_error)
+            st.session_state["ultimo_lote"] = resultado_combinado
+            ultimo_lote = resultado_combinado
 
-            if no_encontrados:
-                st.error(
-                    "No se pudieron encontrar estos PDFs originales para reintentar: "
-                    + ", ".join(no_encontrados)
-                )
+            st.success(
+                "✅ Resultado combinado actualizado: se conservaron los AHK y las filas correctas del primer intento, y se reemplazaron solo las filas de los PDF reintentados."
+            )
 
-            if pdf_jobs_retry:
-                # Guardamos una copia del lote visible antes del reintento.
-                # `ejecutar_lote_streamlit` crea un lote nuevo solo con los PDF reintentados,
-                # pero la vista final debe conservar también los PDF correctos del primer intento.
-                resultado_base_antes_reintento = dict(ultimo_lote)
-
-                resultado_reintento = ejecutar_lote_streamlit(
-                    pdf_jobs=pdf_jobs_retry,
-                    prompt_pregrado=prompt_pregrado,
-                    prompt_posgrado=prompt_posgrado,
-                    modelo_opencode=modelo_opencode,
-                    max_workers_opencode=concurrencia_reintento,
-                    etiqueta_boton="Reintento de errores",
-                    parent_run_id=run_id_anterior,
-                )
-
-                resultado_combinado = reconstruir_resultado_lote_combinado(
-                    resultado_base=resultado_base_antes_reintento,
-                    resultado_reintento=resultado_reintento,
-                )
-
-                st.session_state["ultimo_lote"] = resultado_combinado
-
-                st.success(
-                    "✅ Resultado combinado actualizado: se conservaron los AHK y las filas correctas "
-                    "del primer intento, y se reemplazaron solo las filas de los PDF reintentados."
-                )
-
+            with st.expander("Ver resultado combinado después del reintento", expanded=True):
                 renderizar_resultado_lote_guardado(resultado_combinado)
-                lote_ejecutado_en_esta_corrida = True
-            else:
-                st.warning("No hay PDFs disponibles para reintentar.")
+            lote_ejecutado_en_esta_corrida = True
+        else:
+            st.warning("No hay PDFs disponibles para reintentar.")
 
 if st.session_state.get("ultimo_lote") and not lote_ejecutado_en_esta_corrida:
-    renderizar_resultado_lote_guardado(st.session_state.get("ultimo_lote"))
+    st.divider()
+    with st.expander("Ver detalle del último procesamiento", expanded=False):
+        renderizar_resultado_lote_guardado(st.session_state.get("ultimo_lote"))
 
 st.divider()
-st.caption("Recomendación: para la primera prueba usa 2 o 3 PDFs antes de correr 30 o 40.")
+st.caption(
+    "Consejo: para una primera prueba, usa 2 o 3 PDFs en paralelo. Si todo funciona bien, luego aumenta gradualmente a 4 o más según la capacidad de tu equipo y la estabilidad de OpenCode."
+)
