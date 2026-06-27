@@ -181,7 +181,7 @@ def cargar_timeouts_persistentes() -> dict:
         )
         config["timeout_pdf_minutos"] = limitar_entero(
             data.get("timeout_pdf_minutos"),
-            10,
+            5,
             90,
             config["timeout_pdf_minutos"],
         )
@@ -200,7 +200,7 @@ def guardar_timeouts_persistentes(
     """
     try:
         timeout_opencode_minutos = limitar_entero(timeout_opencode_minutos, 5, 45, 15)
-        timeout_pdf_minutos = limitar_entero(timeout_pdf_minutos, 10, 90, 25)
+        timeout_pdf_minutos = limitar_entero(timeout_pdf_minutos, 5, 90, 25)
 
         TIMEOUTS_PERSISTENTES_PATH.parent.mkdir(parents=True, exist_ok=True)
         data = {
@@ -2509,6 +2509,29 @@ st.markdown(
         font-size: 0.85rem;
         color: #64748b;
     }
+    .retry-alert-card {
+        border: 2px solid #f97316;
+        background: linear-gradient(135deg, #fff7ed 0%, #fffbeb 100%);
+        border-radius: 20px;
+        padding: 1.1rem 1.25rem;
+        margin-top: 1.15rem;
+        margin-bottom: 0.85rem;
+        box-shadow: 0 14px 32px rgba(249, 115, 22, 0.14);
+    }
+    .retry-alert-card h3 {
+        color: #9a3412;
+        margin: 0 0 0.35rem 0;
+        font-size: 1.45rem;
+        line-height: 1.15;
+    }
+    .retry-alert-card p {
+        color: #7c2d12;
+        margin: 0;
+        font-size: 1rem;
+    }
+    .retry-alert-card strong {
+        color: #7c2d12;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -2702,12 +2725,12 @@ with st.container():
         with col_timeout_2:
             timeout_pdf_minutos = st.number_input(
                 "PDF activo (min)",
-                min_value=10,
+                min_value=5,
                 max_value=90,
                 value=int(timeouts_persistidos["timeout_pdf_minutos"]),
                 step=5,
                 key="timeout_pdf_minutos",
-                help="Protección externa del lote: si un PDF activo supera este tiempo, se marca como timeout para que el lote pueda cerrar.",
+                help="Protección externa del lote: si un PDF activo supera este tiempo, se marca como timeout para que el lote pueda cerrar. Puedes bajarlo hasta 5 minutos.",
             )
 
         timeout_opencode_segundos = int(timeout_opencode_minutos) * 60
@@ -2879,14 +2902,20 @@ with st.container():
             st.warning(f"Hay {len(filas_error_panel)} archivo(s) con error reintentable.")
             max_workers_retry_limite = min(max(1, max_workers_opencode), len(filas_error_panel)) if filas_error_panel else 1
             max_workers_retry_limite = max(1, max_workers_retry_limite)
-            concurrencia_reintento = st.slider(
-                "Paralelo en reintento",
-                min_value=1,
-                max_value=max_workers_retry_limite,
-                value=max_workers_retry_limite,
-                step=1,
-                key=f"concurrencia_reintento_panel_{(ultimo_lote or {}).get('run_id','sin_run')}",
-            )
+
+            if max_workers_retry_limite <= 1:
+                concurrencia_reintento = 1
+                st.caption("Reintento con 1 proceso simultáneo porque solo hay 1 PDF con error.")
+            else:
+                concurrencia_reintento = st.slider(
+                    "Paralelo en reintento",
+                    min_value=1,
+                    max_value=max_workers_retry_limite,
+                    value=max_workers_retry_limite,
+                    step=1,
+                    key=f"concurrencia_reintento_panel_{(ultimo_lote or {}).get('run_id','sin_run')}",
+                )
+
             reintentar_click = st.button(
                 f"🔁 Reintentar {len(filas_error_panel)} PDF(s) con error",
                 disabled=not api_keys or not opencode_path,
@@ -2910,6 +2939,85 @@ with st.container():
                     st.write(f"**CSV errores:** `{ultimo_lote.get('errores_csv_path', '')}`")
             else:
                 st.caption("Aún no hay actividad registrada en esta sesión.")
+
+# Sección destacada de reintento: queda visible fuera del panel lateral para que el usuario
+# no tenga que buscarla dentro del resumen ni dentro del detalle del último procesamiento.
+filas_error_destacadas = (st.session_state.get("ultimo_lote") or {}).get("filas_error", [])
+
+if filas_error_destacadas:
+    run_id_reintento_destacado = (st.session_state.get("ultimo_lote") or {}).get("run_id", "sin_run")
+    st.markdown(
+        f"""
+        <div class="retry-alert-card">
+            <h3>🔁 Archivos con error listos para reintentar</h3>
+            <p>
+                Hay <strong>{len(filas_error_destacadas)}</strong> PDF(s) con error reintentable en el lote
+                <strong>{run_id_reintento_destacado}</strong>. Puedes reintentar solo esos archivos sin perder
+                los AHK que ya se generaron correctamente.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    columnas_error_visibles = [
+        columna
+        for columna in ["Archivo", "Estado", "Fase actual", "Duración", "Error"]
+        if filas_error_destacadas and columna in filas_error_destacadas[0]
+    ]
+
+    with st.expander("Ver PDFs que se van a reintentar", expanded=True):
+        if columnas_error_visibles:
+            st.dataframe(
+                [
+                    {columna: fila.get(columna, "") for columna in columnas_error_visibles}
+                    for fila in filas_error_destacadas
+                ],
+                use_container_width=True,
+                hide_index=True,
+                height=min(300, 40 * (len(filas_error_destacadas) + 1)),
+            )
+        else:
+            st.dataframe(filas_error_destacadas, use_container_width=True)
+
+    col_retry_info, col_retry_action = st.columns([1, 2], gap="large")
+
+    with col_retry_info:
+        max_workers_retry_destacado = min(max(1, int(max_workers_opencode)), len(filas_error_destacadas))
+        max_workers_retry_destacado = max(1, max_workers_retry_destacado)
+
+        if max_workers_retry_destacado <= 1:
+            concurrencia_reintento_destacada = 1
+            st.info("Reintento configurado con 1 proceso simultáneo porque solo hay 1 PDF con error.")
+        else:
+            concurrencia_reintento_destacada = st.slider(
+                "Procesos simultáneos para este reintento",
+                min_value=1,
+                max_value=max_workers_retry_destacado,
+                value=max_workers_retry_destacado,
+                step=1,
+                key=f"concurrencia_reintento_destacada_{run_id_reintento_destacado}",
+            )
+
+        st.caption(
+            "El reintento solo procesará los PDFs con error. Los resultados correctos anteriores se conservarán."
+        )
+
+    with col_retry_action:
+        reintentar_click_destacado = st.button(
+            f"🔁 Reintentar ahora {len(filas_error_destacadas)} PDF(s) con error",
+            disabled=not api_keys or not opencode_path,
+            use_container_width=True,
+            type="primary",
+            key=f"boton_reintentar_destacado_{run_id_reintento_destacado}",
+        )
+        st.caption(
+            "Después del reintento, la tabla final quedará combinada: PDFs correctos anteriores + PDFs reintentados actualizados."
+        )
+
+    if reintentar_click_destacado:
+        concurrencia_reintento = concurrencia_reintento_destacada
+        reintentar_click = True
 
 lote_ejecutado_en_esta_corrida = False
 
