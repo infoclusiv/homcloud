@@ -1,19 +1,20 @@
 name: Apply retry UI fix
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/retry-failed-pdfs-before-download
+      - main
+    types: [opened, reopened, synchronize]
 
 permissions:
   contents: write
 
 jobs:
   apply-fix:
-    if: github.actor != 'github-actions[bot]'
+    if: github.head_ref == 'agent/retry-failed-pdfs-before-download'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout branch
+      - name: Checkout feature branch
         uses: actions/checkout@v4
         with:
           ref: agent/retry-failed-pdfs-before-download
@@ -44,22 +45,21 @@ if 'reintentar_click' in locals() and reintentar_click:
 if 'reintentar_click' in locals() and reintentar_click:
 '''
 
-          if new in text:
-              raise SystemExit("The retry UI refresh fix is already present.")
-          if old not in text:
-              raise SystemExit("Expected processing completion block was not found; no file was changed.")
-
-          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          if new not in text:
+              if old not in text:
+                  raise SystemExit("Expected processing completion block was not found; no file was changed.")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
           PY
 
       - name: Validate Python syntax
         run: python -m py_compile app.py
 
-      - name: Commit patch
+      - name: Remove temporary workflow and commit patch
         shell: bash
         run: |
+          rm .github/workflows/apply-retry-ui-fix.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app.py
+          git add app.py .github/workflows/apply-retry-ui-fix.yml
           git commit -m "Show retry controls immediately after processing"
           git push origin HEAD:agent/retry-failed-pdfs-before-download
