@@ -17,6 +17,7 @@ Tercera columna: Contiene las calificaciones correspondientes a cada código.
 Las calificaciones deben formatearse siempre con un decimal:
 Si la calificación es un número entero, debe mostrarse con dos decimales (por ejemplo, 4 debe ser 4.00).
 Si la calificación tiene un decimal se debe crear con dos decimales y el último decimal siempre debe ser 0 (por ejemplo, 4.2 se convierte en 4.20).
+Si la calificación tiene dos decimales se debe aproximar para poder dejar el último decimal en cero (Por ejemplo si la calificación es 4.22 se convierte en 4.20, si la calificación es 4.25 se convierte en 4.30)
 Luego, genera un archivo de script de AutoHotkey que automatice el ingreso de todos los datos extraídos siguiendo estas instrucciones específicas:
 
 Diligencia las letras del código.
