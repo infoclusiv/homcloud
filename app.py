@@ -15,6 +15,79 @@ PROGRAMAS_PLANES_PATH = Path(__file__).with_name("settings") / "programas_planes
 COLOR_PLAN_CORRECTO = "rgb(0, 204, 47)"
 COLOR_PLAN_INCORRECTO = "rgb(255, 124, 28)"
 
+PROGRAMAS_PLANES_DEFAULT = [
+    {
+        "Programa al que aspira": "Administración Logística",
+        "Plan": "P2",
+        "Alias": "Adm logística; Admon logística; Administración de logística",
+    },
+    {
+        "Programa al que aspira": "Marketing y Negocios Internacionales",
+        "Plan": "P2",
+        "Alias": "Mkt y negocios; Marketing y negocios; Mkt y negocios internacionales",
+    },
+    {
+        "Programa al que aspira": "Psicología",
+        "Plan": "P4",
+        "Alias": "",
+    },
+    {
+        "Programa al que aspira": "Especialización en Gerencia de la Calidad en Salud",
+        "Plan": "P2",
+        "Alias": "Esp calidad en salud; Esp gerencia calidad en salud; Esp gerencia de la calidad en salud; Especialización en calidad en salud",
+    },
+    {
+        "Programa al que aspira": "Especialización en Seguridad y Salud en el Trabajo",
+        "Plan": "P2",
+        "Alias": "Esp seg y salud trabajo; Esp seguridad y salud trabajo; Especialización SST; Esp SST; Seguridad y Salud en el Trabajo",
+    },
+    {
+        "Programa al que aspira": "Especialización en Audiología",
+        "Plan": "P2",
+        "Alias": "Esp en audiologia; Esp audiologia; Especialización Audiología",
+    },
+    {
+        "Programa al que aspira": "Especialización en Gerencia Financiera",
+        "Plan": "P2",
+        "Alias": "Esp gerencia finaciera; Esp gerencia financiera; Especialización gerencia financiera",
+    },
+    {
+        "Programa al que aspira": "Especialización en Desarrollo Integral de la Infancia y la Adolescencia",
+        "Plan": "P2",
+        "Alias": "Esp desarrollo integral de infancia y adolesencia; Esp desarrollo integral de infancia y adolescencia; Desarrollo integral infancia adolescencia",
+    },
+    {
+        "Programa al que aspira": "Fonoaudiología",
+        "Plan": "P5",
+        "Alias": "",
+    },
+    {
+        "Programa al que aspira": "Fisioterapia",
+        "Plan": "P5",
+        "Alias": "",
+    },
+    {
+        "Programa al que aspira": "Contaduría Pública",
+        "Plan": "P2",
+        "Alias": "Contaduría; Contaduria",
+    },
+    {
+        "Programa al que aspira": "Licenciatura en Educación Infantil",
+        "Plan": "P1",
+        "Alias": "Lic en educación infantil; Lic educación infantil; Licenciatura educación infantil",
+    },
+    {
+        "Programa al que aspira": "Licenciatura en Humanidades y Lengua Castellana",
+        "Plan": "P2",
+        "Alias": "Lic en humanidades y lengua castellana; Lic humanidades y lengua castellana; Licenciatura humanidades y lengua castellana",
+    },
+    {
+        "Programa al que aspira": "Maestría en Educación",
+        "Plan": "P2",
+        "Alias": "Maestría Educación; Maestria educacion",
+    },
+]
+
 
 def _normalizar_texto(valor) -> str:
     texto = str(valor or "").strip().lower()
@@ -36,9 +109,29 @@ def normalizar_programa(valor) -> str:
 
 def normalizar_plan(valor) -> str:
     texto = _normalizar_texto(valor)
-    texto = re.sub(r"^plan\s*", "", texto)
+    texto = re.sub(r"^(?:plan|p)\s*", "", texto)
     texto = re.sub(r"[^a-z0-9]+", "", texto)
     return texto
+
+
+def separar_alias(valor) -> list[str]:
+    if isinstance(valor, (list, tuple, set)):
+        candidatos = valor
+    else:
+        candidatos = re.split(r"[;\n]+", str(valor or ""))
+
+    alias_limpios = []
+    alias_vistos = set()
+
+    for candidato in candidatos:
+        alias = str(candidato or "").strip()
+        clave = normalizar_programa(alias)
+        if not clave or clave in alias_vistos:
+            continue
+        alias_vistos.add(clave)
+        alias_limpios.append(alias)
+
+    return alias_limpios
 
 
 def _convertir_editor_a_registros(datos) -> list[dict]:
@@ -62,13 +155,14 @@ def _convertir_editor_a_registros(datos) -> list[dict]:
 
 def validar_programas_planes(datos) -> list[dict]:
     filas_limpias = []
-    programas_vistos = {}
+    nombres_vistos = {}
 
     for numero_fila, fila in enumerate(_convertir_editor_a_registros(datos), start=1):
         programa = str(fila.get("Programa al que aspira", "") or "").strip()
         plan = str(fila.get("Plan", "") or "").strip()
+        alias = separar_alias(fila.get("Alias", ""))
 
-        if not programa and not plan:
+        if not programa and not plan and not alias:
             continue
 
         if not programa or not plan:
@@ -85,17 +179,34 @@ def validar_programas_planes(datos) -> list[dict]:
         if not clave_plan:
             raise ValueError(f"El plan de la fila {numero_fila} no es válido.")
 
-        if clave_programa in programas_vistos:
-            fila_anterior = programas_vistos[clave_programa]
-            raise ValueError(
-                f"El programa '{programa}' está repetido en las filas "
-                f"{fila_anterior} y {numero_fila}."
-            )
+        nombres_fila = [(programa, clave_programa)]
+        nombres_fila.extend((nombre_alias, normalizar_programa(nombre_alias)) for nombre_alias in alias)
 
-        programas_vistos[clave_programa] = numero_fila
+        claves_fila = set()
+        alias_sin_repetir_programa = []
+
+        for nombre_visible, clave_nombre in nombres_fila:
+            if not clave_nombre or clave_nombre in claves_fila:
+                continue
+
+            claves_fila.add(clave_nombre)
+
+            if clave_nombre in nombres_vistos:
+                fila_anterior, programa_anterior = nombres_vistos[clave_nombre]
+                raise ValueError(
+                    f"El nombre o alias '{nombre_visible}' de la fila {numero_fila} "
+                    f"ya pertenece a '{programa_anterior}' en la fila {fila_anterior}."
+                )
+
+            nombres_vistos[clave_nombre] = (numero_fila, programa)
+
+            if clave_nombre != clave_programa:
+                alias_sin_repetir_programa.append(nombre_visible)
+
         filas_limpias.append({
             "Programa al que aspira": programa,
-            "Plan": plan,
+            "Plan": f"P{clave_plan}" if clave_plan.isdigit() else plan,
+            "Alias": "; ".join(alias_sin_repetir_programa),
         })
 
     filas_limpias.sort(
@@ -107,7 +218,7 @@ def validar_programas_planes(datos) -> list[dict]:
 def cargar_programas_planes(path: Path = PROGRAMAS_PLANES_PATH) -> list[dict]:
     try:
         if not path.exists():
-            return []
+            return guardar_programas_planes(PROGRAMAS_PLANES_DEFAULT, path)
 
         contenido = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(contenido, dict):
@@ -115,7 +226,7 @@ def cargar_programas_planes(path: Path = PROGRAMAS_PLANES_PATH) -> list[dict]:
 
         return validar_programas_planes(contenido)
     except Exception:
-        return []
+        return validar_programas_planes(PROGRAMAS_PLANES_DEFAULT)
 
 
 def guardar_programas_planes(
@@ -138,25 +249,35 @@ def guardar_programas_planes(
     return filas_limpias
 
 
-def construir_mapa_programas_planes(configuracion) -> dict[str, str]:
-    return {
-        normalizar_programa(fila["Programa al que aspira"]): fila["Plan"]
-        for fila in validar_programas_planes(configuracion)
-    }
+def construir_mapa_programas_planes(configuracion) -> dict[str, dict[str, str]]:
+    mapa = {}
+
+    for fila in validar_programas_planes(configuracion):
+        programa_oficial = fila["Programa al que aspira"]
+        plan = fila["Plan"]
+        nombres = [programa_oficial] + separar_alias(fila.get("Alias", ""))
+
+        for nombre in nombres:
+            mapa[normalizar_programa(nombre)] = {
+                "programa_oficial": programa_oficial,
+                "plan": plan,
+            }
+
+    return mapa
 
 
-def evaluar_plan(programa, plan, mapa_programas_planes: dict[str, str]) -> str:
+def evaluar_plan(programa, plan, mapa_programas_planes: dict[str, dict[str, str]]) -> str:
     programa_normalizado = normalizar_programa(programa)
     plan_normalizado = normalizar_plan(plan)
 
     if not programa_normalizado and not plan_normalizado:
         return "sin_datos"
 
-    plan_esperado = mapa_programas_planes.get(programa_normalizado)
-    if plan_esperado is None:
+    coincidencia = mapa_programas_planes.get(programa_normalizado)
+    if coincidencia is None:
         return "sin_configuracion"
 
-    if plan_normalizado == normalizar_plan(plan_esperado):
+    if plan_normalizado == normalizar_plan(coincidencia["plan"]):
         return "correcto"
 
     return "incorrecto"
@@ -391,24 +512,30 @@ with st.container():
             expanded=False,
         ):
             st.caption(
-                "Agrega una fila por cada programa. Puedes escribir, por ejemplo, "
-                "'Administración financiera' y 'Plan 1'. Usa el botón + para añadir filas."
+                "El catálogo inicial ya está cargado. Separa varios alias con punto y coma; "
+                "cada alias se reconocerá como el mismo programa oficial."
             )
             programas_planes_editados = st.data_editor(
                 programas_planes_guardados
-                or [{"Programa al que aspira": "", "Plan": ""}],
+                or [{"Programa al que aspira": "", "Plan": "", "Alias": ""}],
                 num_rows="dynamic",
                 hide_index=True,
                 use_container_width=True,
                 key="editor_programas_planes",
                 column_config={
                     "Programa al que aspira": st.column_config.TextColumn(
-                        "Programa al que aspira",
+                        "Programa oficial",
                         width="large",
                     ),
                     "Plan": st.column_config.TextColumn(
                         "Plan",
                         width="small",
+                        help="P2, Plan 2 y 2 se consideran equivalentes.",
+                    ),
+                    "Alias": st.column_config.TextColumn(
+                        "Alias y abreviaciones",
+                        width="large",
+                        help="Separa cada variante con punto y coma.",
                     ),
                 },
             )
@@ -438,7 +565,8 @@ with st.container():
                     reiniciar_app_streamlit()
 
             st.caption(
-                "Comparación tolerante: ignora mayúsculas, tildes, espacios y el prefijo 'Plan'."
+                "La comparación ignora mayúsculas, tildes, puntuación y espacios. "
+                "También reconoce los alias configurados y equipara P2, Plan 2 y 2."
             )
 
 with st.container():
