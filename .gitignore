@@ -40,3 +40,4 @@ Thumbs.db
 
 # Local persistent program-plan configuration
 settings/programas_planes.json
+settings/timeouts.json
