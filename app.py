@@ -10,6 +10,7 @@ from programas_planes import (
     evaluar_plan,
     guardar_programas_planes,
 )
+from excel_runtime_patch import aplicar_soporte_excel
 
 
 _APP_CORE_PATH = Path(__file__).with_name("app_core.py")
@@ -413,5 +414,7 @@ _APP_SOURCE = _APP_SOURCE.replace(
     _OLD_ERROR_TABLE_LINE,
     _NEW_ERROR_TABLE_LINE,
 )
+
+_APP_SOURCE = aplicar_soporte_excel(_APP_SOURCE)
 
 exec(compile(_APP_SOURCE, str(_APP_CORE_PATH), "exec"), globals(), globals())
