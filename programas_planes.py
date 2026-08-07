@@ -7,8 +7,22 @@ import re
 import unicodedata
 
 
-PROGRAMAS_PLANES_CONFIG_VERSION = 2
+PROGRAMAS_PLANES_CONFIG_VERSION = 3
 CAMPO_PERMITIR_PLAN_VACIO = "Permitir plan vacío"
+
+PROGRAMA_SST_PREGRADO = "Seguridad y Salud en el Trabajo Virtual"
+PROGRAMA_SST_POSGRADO = (
+    "Especialización en Gerencia de la Seguridad y Salud en el Trabajo Virtual"
+)
+_ALIAS_SST_PREGRADO = {
+    "seguridad y salud en el trabajo",
+    "seguridad y salud en el trabajo virtual",
+}
+_OFICIALES_SST_POSGRADO_ANTERIORES = {
+    "especializacion en seguridad y salud en el trabajo",
+    "especializacion en seguridad y salud en el trabajo virtual",
+    "especializacion en gerencia de la seguridad y salud en el trabajo virtual",
+}
 
 
 def _programa(nombre: str, plan: str, alias: str = "", permitir_vacio: bool = False):
@@ -33,14 +47,19 @@ PROGRAMAS_PLANES_DEFAULT = [
     ),
     _programa("Psicología", "P4"),
     _programa(
+        PROGRAMA_SST_POSGRADO,
+        "P2",
+        (
+            "Especialización en Seguridad y Salud en el Trabajo; "
+            "Especialización en Seguridad y Salud en el Trabajo Virtual; "
+            "Esp seg y salud trabajo; Esp seguridad y salud trabajo; "
+            "Especialización SST; Esp SST; ESP GCIA SEG SALUD EN TRA VIRT"
+        ),
+    ),
+    _programa(
         "Especialización en Gerencia de la Calidad en Salud",
         "P2",
         "Esp calidad en salud; Esp gerencia calidad en salud; Esp gerencia de la calidad en salud; Especialización en calidad en salud",
-    ),
-    _programa(
-        "Especialización en Seguridad y Salud en el Trabajo",
-        "P2",
-        "Esp seg y salud trabajo; Esp seguridad y salud trabajo; Especialización SST; Esp SST; Seguridad y Salud en el Trabajo",
     ),
     _programa(
         "Especialización en Audiología",
@@ -113,6 +132,26 @@ PROGRAMAS_PLANES_DEFAULT = [
         "Esp Gerencia de Proyectos Vir",
         True,
     ),
+    _programa("Especialización en Ciberseguridad", "P1", permitir_vacio=True),
+    _programa(
+        "Especialización en Neuropsicología de la Educación",
+        "P1",
+        permitir_vacio=True,
+    ),
+    _programa(
+        PROGRAMA_SST_PREGRADO,
+        "P1",
+        "Seguridad y Salud en el Trabajo",
+        True,
+    ),
+    _programa("Maestría en Gerencia de Proyectos", "P1", permitir_vacio=True),
+    _programa("Trabajo Social Virtual", "P1", permitir_vacio=True),
+    _programa(
+        "Especialización en Analítica y Big Data",
+        "P1",
+        "Especialización en Analítica Virtual y Big Data",
+        True,
+    ),
 ]
 
 
@@ -149,13 +188,7 @@ def normalizar_booleano(valor) -> bool:
             return bool(valor)
 
     return _normalizar_texto(valor) in {
-        "1",
-        "si",
-        "sí",
-        "true",
-        "verdadero",
-        "yes",
-        "x",
+        "1", "si", "sí", "true", "verdadero", "yes", "x",
     }
 
 
@@ -167,14 +200,12 @@ def separar_alias(valor) -> list[str]:
     )
     resultado = []
     vistos = set()
-
     for candidato in candidatos:
         alias = str(candidato or "").strip()
         clave = normalizar_programa(alias)
         if clave and clave not in vistos:
             vistos.add(clave)
             resultado.append(alias)
-
     return resultado
 
 
@@ -269,8 +300,47 @@ def _unir_alias(programa_oficial: str, *grupos_alias) -> str:
     return "; ".join(resultado)
 
 
-def migrar_programas_planes(datos) -> list[dict]:
+def _migrar_seguridad_salud_v3(datos) -> list[dict]:
     resultado = [dict(fila) for fila in validar_programas_planes(datos)]
+    claves_posgrado = {
+        normalizar_programa(nombre)
+        for nombre in _OFICIALES_SST_POSGRADO_ANTERIORES
+    }
+    claves_pregrado = {
+        normalizar_programa(nombre)
+        for nombre in _ALIAS_SST_PREGRADO
+    }
+
+    for fila in resultado:
+        clave_oficial = normalizar_programa(fila["Programa al que aspira"])
+        if clave_oficial not in claves_posgrado:
+            continue
+
+        alias_preservados = [
+            alias
+            for alias in separar_alias(fila.get("Alias", ""))
+            if normalizar_programa(alias) not in claves_pregrado
+        ]
+        alias_preservados.append(fila["Programa al que aspira"])
+        fila["Programa al que aspira"] = PROGRAMA_SST_POSGRADO
+        fila["Plan"] = "P2"
+        fila[CAMPO_PERMITIR_PLAN_VACIO] = False
+        fila["Alias"] = _unir_alias(
+            PROGRAMA_SST_POSGRADO,
+            alias_preservados,
+            (
+                "Especialización en Seguridad y Salud en el Trabajo; "
+                "Especialización en Seguridad y Salud en el Trabajo Virtual; "
+                "Esp seg y salud trabajo; Esp seguridad y salud trabajo; "
+                "Especialización SST; Esp SST; ESP GCIA SEG SALUD EN TRA VIRT"
+            ),
+        )
+
+    return validar_programas_planes(resultado)
+
+
+def migrar_programas_planes(datos) -> list[dict]:
+    resultado = _migrar_seguridad_salud_v3(datos)
     indices_por_nombre = {}
 
     for indice, fila in enumerate(resultado):
