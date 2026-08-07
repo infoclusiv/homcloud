@@ -75,22 +75,18 @@ _OLD_LLMWHISPERER_BLOCK = '''def parsear_pdf_con_llmwhisperer(pdf_path: Path):
 _NEW_LLMWHISPERER_BLOCK = '''def parsear_pdf_con_llmwhisperer(pdf_path: Path):
     # El nombre histórico se conserva por compatibilidad con el resto del pipeline,
     # pero la función procesa tanto PDF como Excel.
-    extension = pdf_path.suffix.lower()
+    from documentos import (
+        modo_llmwhisperer_para_archivo,
+        tipo_documento_para_archivo,
+    )
 
-    if extension == ".pdf":
-        modo_llmwhisperer = "high_quality"
-        tipo_documento = "PDF"
-    elif extension in {".xlsx", ".xls"}:
-        # LLMWhisperer requiere form mode para MS Office Excel.
-        modo_llmwhisperer = "form"
-        tipo_documento = "Excel"
-    else:
+    try:
+        modo_llmwhisperer = modo_llmwhisperer_para_archivo(pdf_path)
+        tipo_documento = tipo_documento_para_archivo(pdf_path)
+    except ValueError as e:
         return {
             "ok": False,
-            "error": (
-                f"Tipo de archivo no soportado: {extension or 'sin extensión'}. "
-                "Solo se permiten PDF, XLSX y XLS."
-            ),
+            "error": str(e),
         }
 
     api_keys = obtener_api_keys_llmwhisperer()
