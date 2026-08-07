@@ -234,10 +234,10 @@ with st.container():
             "Procesos simultáneos",
             min_value=1,
             max_value=20,
-            value=3,
+            value=12,
             step=1,
             key="max_workers_opencode_ui_base",
-            help="Recomendado: entre 2 y 6. Máximo habilitado: 20. El valor se limita automáticamente al número de archivos cargados.",
+            help="Valor inicial: 12. Máximo habilitado: 20. El valor se limita automáticamente al número de archivos cargados.",
         )
         if max_workers_opencode > 12:
             st.warning(
