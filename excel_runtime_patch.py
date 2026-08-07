@@ -276,7 +276,10 @@ _NEW_HEADER_STYLE_BLOCK = '''    .app-shell {
 '''
 
 
-_OLD_STATUS_CHIP_RENDERER = '''def construir_estado_chip(label: str, value: str) -> str:
+# Estas cadenas son raw a propósito. app.py lee app_core.py como texto y allí las
+# comillas de los atributos HTML están escapadas literalmente como \". Si Python
+# interpretara esos escapes aquí, el patrón dejaría de coincidir con el archivo fuente.
+_OLD_STATUS_CHIP_RENDERER = r'''def construir_estado_chip(label: str, value: str) -> str:
     return f"""
     <div class=\"status-chip\">
         <span class=\"label\">{label}</span>
@@ -295,7 +298,7 @@ _NEW_STATUS_CHIP_RENDERER = '''def construir_estado_chip(label: str, value: str)
 '''
 
 
-_OLD_HEADER_MARKUP = '''st.markdown(
+_OLD_HEADER_MARKUP = r'''st.markdown(
     f"""
     <div class=\"app-shell\">
       <div class=\"header-grid\">
@@ -369,26 +372,28 @@ def aplicar_soporte_excel(source: str) -> str:
         "parser LLMWhisperer",
     )
 
-    # En la aplicación real estos tres bloques existen en app_core.py. Son opcionales
-    # para que los tests unitarios que usan una fuente mínima sigan siendo válidos.
     source = _reemplazar_si_existe_una_vez(
         source,
         _OLD_HEADER_STYLE_BLOCK,
         _NEW_HEADER_STYLE_BLOCK,
         "cabecera compacta",
     )
-    source = _reemplazar_si_existe_una_vez(
-        source,
-        _OLD_STATUS_CHIP_RENDERER,
-        _NEW_STATUS_CHIP_RENDERER,
-        "chips HTML compactos",
-    )
-    source = _reemplazar_si_existe_una_vez(
-        source,
-        _OLD_HEADER_MARKUP,
-        _NEW_HEADER_MARKUP,
-        "cabecera renderizada con st.html",
-    )
+
+    # En app_core estos dos bloques son parte obligatoria del encabezado. Si cambian
+    # y dejan de coincidir, se falla de forma explícita en vez de ignorar el problema.
+    if "<h1>Procesador por lote</h1>" in source:
+        source = _reemplazar_una_vez(
+            source,
+            _OLD_STATUS_CHIP_RENDERER,
+            _NEW_STATUS_CHIP_RENDERER,
+            "chips HTML compactos",
+        )
+        source = _reemplazar_una_vez(
+            source,
+            _OLD_HEADER_MARKUP,
+            _NEW_HEADER_MARKUP,
+            "cabecera renderizada con st.html",
+        )
 
     source = _reemplazar_una_vez(
         source,
