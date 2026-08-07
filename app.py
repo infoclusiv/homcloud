@@ -233,16 +233,21 @@ with st.container():
         max_workers_opencode = st.slider(
             "Procesos simultáneos",
             min_value=1,
-            max_value=12,
+            max_value=20,
             value=3,
             step=1,
             key="max_workers_opencode_ui_base",
-            help="Recomendado: entre 2 y 6. El valor se limita automáticamente al número de PDFs cargados.",
+            help="Recomendado: entre 2 y 6. Máximo habilitado: 20. El valor se limita automáticamente al número de archivos cargados.",
         )
-        if max_workers_opencode > 6:
+        if max_workers_opencode > 12:
+            st.warning(
+                "Alta concurrencia activa (13–20 procesos). Puede aumentar de forma importante "
+                "los límites de API, el consumo de CPU/RAM y los timeouts de OpenCode."
+            )
+        elif max_workers_opencode > 6:
             st.warning("Más de 6 procesos puede aumentar errores de API, saturación o timeouts.")
         else:
-            st.caption("Recomendado: 2 a 6 procesos simultáneos.")
+            st.caption("Recomendado: 2 a 6 procesos simultáneos. Máximo disponible: 20.")
 
     with col_programas:
         with st.expander(
@@ -331,6 +336,23 @@ if _APP_SOURCE.count(_OLD_OPERATIONAL_CONFIG_MARKER) != 1:
 _APP_SOURCE = _APP_SOURCE.replace(
     _OLD_OPERATIONAL_CONFIG_MARKER,
     _NEW_OPERATIONAL_CONFIG_BLOCK,
+    1,
+)
+
+# app_core limita otra vez la concurrencia al número de archivos cargados.
+# Elevamos también ese límite interno de 12 a 20 para que el valor del slider
+# llegue realmente al ThreadPoolExecutor y no quede recortado silenciosamente.
+_OLD_CONCURRENCY_LIMIT_LINE = "            max_workers_limite_ui = min(12, len(uploaded_files))"
+_NEW_CONCURRENCY_LIMIT_LINE = "            max_workers_limite_ui = min(20, len(uploaded_files))"
+
+if _APP_SOURCE.count(_OLD_CONCURRENCY_LIMIT_LINE) != 1:
+    raise RuntimeError(
+        "No se encontró el límite interno esperado de 12 procesos simultáneos."
+    )
+
+_APP_SOURCE = _APP_SOURCE.replace(
+    _OLD_CONCURRENCY_LIMIT_LINE,
+    _NEW_CONCURRENCY_LIMIT_LINE,
     1,
 )
 
