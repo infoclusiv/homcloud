@@ -287,8 +287,7 @@ _OLD_STATUS_CHIP_RENDERER = '''def construir_estado_chip(label: str, value: str)
 
 
 _NEW_STATUS_CHIP_RENDERER = '''def construir_estado_chip(label: str, value: str) -> str:
-    # HTML en una sola línea: evita que Markdown interprete cierres </div>
-    # con sangría como bloques de código visibles.
+    # HTML en una sola línea para que cada chip sea un fragmento válido y autocontenido.
     return (
         f'<div class="status-chip"><span class="label">{label}</span>'
         f'<span class="value">{value}</span></div>'
@@ -317,19 +316,20 @@ _OLD_HEADER_MARKUP = '''st.markdown(
 '''
 
 
-_NEW_HEADER_MARKUP = '''st.markdown(
-    (
-        '<div class="app-shell"><div class="header-grid"><div>'
-        '<h1>Procesador por lote</h1>'
-        '<p>LLMWhisperer + OpenCode CLI · interfaz compacta para configurar, cargar y procesar sin casi hacer scroll.</p>'
-        '</div><div class="chip-row">'
-        f'{construir_estado_chip("API keys LLMWhisperer", api_value)}'
-        f'{construir_estado_chip("OpenCode", opencode_value)}'
-        f'{construir_estado_chip("Prompts", "Pregrado y Posgrado")}'
-        '</div></div></div>'
-    ),
-    unsafe_allow_html=True,
+_NEW_HEADER_MARKUP = '''header_html = (
+    '<div class="app-shell"><div class="header-grid"><div>'
+    '<h1>Procesador por lote</h1>'
+    '<p>LLMWhisperer + OpenCode CLI · interfaz compacta para configurar, cargar y procesar sin casi hacer scroll.</p>'
+    '</div><div class="chip-row">'
+    f'{construir_estado_chip("API keys LLMWhisperer", api_value)}'
+    f'{construir_estado_chip("OpenCode", opencode_value)}'
+    f'{construir_estado_chip("Prompts", "Pregrado y Posgrado")}'
+    '</div></div></div>'
 )
+
+# st.html renderiza HTML directamente, sin pasarlo por el parser Markdown.
+# Esto evita que un cierre </div> termine convertido en un bloque de código visible.
+st.html(header_html)
 '''
 
 
@@ -381,13 +381,13 @@ def aplicar_soporte_excel(source: str) -> str:
         source,
         _OLD_STATUS_CHIP_RENDERER,
         _NEW_STATUS_CHIP_RENDERER,
-        "chips sin HTML indentado",
+        "chips HTML compactos",
     )
     source = _reemplazar_si_existe_una_vez(
         source,
         _OLD_HEADER_MARKUP,
         _NEW_HEADER_MARKUP,
-        "HTML de cabecera en una sola línea",
+        "cabecera renderizada con st.html",
     )
 
     source = _reemplazar_una_vez(
