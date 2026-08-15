@@ -1,4 +1,5 @@
 from pathlib import Path
+import uuid
 
 import pandas as pd
 import streamlit as st
@@ -13,16 +14,142 @@ from programas_planes import (
 from excel_runtime_patch import aplicar_soporte_excel
 
 
+BASE_DIR = Path(__file__).resolve().parent
 _APP_CORE_PATH = Path(__file__).with_name("app_core.py")
 _APP_SOURCE = _APP_CORE_PATH.read_text(encoding="utf-8")
 PROGRAMAS_PLANES_PATH = Path(__file__).with_name("settings") / "programas_planes.json"
+UPLOADS_DIR_APP = BASE_DIR / "uploads"
+STATIC_PDFS_DIR = BASE_DIR / "static" / "pdfs"
+STATIC_PDFS_DIR.mkdir(parents=True, exist_ok=True)
 
 COLOR_PLAN_CORRECTO = "rgb(0, 204, 47)"
 COLOR_PLAN_INCORRECTO = "rgb(255, 124, 28)"
 
 
+def _resolver_pdf_original(nombre_archivo: str) -> Path | None:
+    """Localiza la copia original del PDF guardada en uploads/<run_id>/.
+
+    Primero intenta las rutas del último lote guardado y después recorre los
+    lotes existentes del más reciente al más antiguo. Este fallback también
+    permite crear enlaces en el primer render del resumen, antes de que
+    `ultimo_lote` haya sido escrito en session_state.
+    """
+    nombre = Path(str(nombre_archivo or "")).name.strip()
+    if not nombre:
+        return None
+
+    ultimo_lote = st.session_state.get("ultimo_lote") or {}
+    directorios_candidatos = []
+
+    run_uploads_dir = ultimo_lote.get("run_uploads_dir")
+    if run_uploads_dir:
+        directorios_candidatos.append(Path(run_uploads_dir))
+
+    for clave_run in ("run_id", "parent_run_id"):
+        run_id = str(ultimo_lote.get(clave_run) or "").strip()
+        if run_id:
+            directorios_candidatos.append(UPLOADS_DIR_APP / run_id)
+
+    vistos = set()
+    for directorio in directorios_candidatos:
+        clave = str(directorio)
+        if clave in vistos:
+            continue
+        vistos.add(clave)
+        candidato = directorio / nombre
+        if candidato.exists() and candidato.is_file():
+            return candidato
+
+    if not UPLOADS_DIR_APP.exists():
+        return None
+
+    coincidencias = []
+    try:
+        for run_dir in UPLOADS_DIR_APP.iterdir():
+            if not run_dir.is_dir():
+                continue
+            candidato = run_dir / nombre
+            if candidato.exists() and candidato.is_file():
+                try:
+                    orden = candidato.stat().st_mtime_ns
+                except OSError:
+                    orden = 0
+                coincidencias.append((orden, candidato))
+    except OSError:
+        return None
+
+    if not coincidencias:
+        return None
+
+    coincidencias.sort(key=lambda item: item[0], reverse=True)
+    return coincidencias[0][1]
+
+
+def _publicar_pdf_para_navegador(pdf_path: Path) -> str:
+    """Copia un PDF a static/pdfs bajo un token aleatorio y devuelve su URL."""
+    try:
+        stat = pdf_path.stat()
+        cache_key = f"{pdf_path.resolve()}::{stat.st_mtime_ns}::{stat.st_size}"
+    except OSError:
+        return ""
+
+    cache = st.session_state.setdefault("_pdf_static_links", {})
+    enlace_cacheado = cache.get(cache_key)
+    if enlace_cacheado:
+        ruta_relativa = enlace_cacheado.removeprefix("app/static/")
+        destino_cacheado = BASE_DIR / "static" / ruta_relativa
+        if destino_cacheado.exists():
+            return enlace_cacheado
+
+    token = uuid.uuid4().hex
+    nombre_publico = pdf_path.name.replace("#", "").replace("%", "") or "documento.pdf"
+    destino_dir = STATIC_PDFS_DIR / token
+    destino_dir.mkdir(parents=True, exist_ok=True)
+    destino = destino_dir / nombre_publico
+
+    try:
+        destino.write_bytes(pdf_path.read_bytes())
+    except OSError:
+        return ""
+
+    enlace = f"app/static/pdfs/{token}/{nombre_publico}"
+    cache[cache_key] = enlace
+    return enlace
+
+
+def preparar_dataframe_con_links_pdf(filas):
+    """Convierte la columna Archivo en enlaces sin modificar las filas originales."""
+    dataframe = pd.DataFrame(filas).copy()
+    column_config = {}
+
+    if dataframe.empty or "Archivo" not in dataframe.columns:
+        return dataframe, column_config
+
+    enlaces = []
+    for nombre_archivo in dataframe["Archivo"].tolist():
+        pdf_path = _resolver_pdf_original(nombre_archivo)
+        if not pdf_path:
+            enlaces.append("")
+            continue
+        enlaces.append(_publicar_pdf_para_navegador(pdf_path))
+
+    # Si falta algún PDF, preservamos la tabla como texto en lugar de dejar una
+    # mezcla de enlaces válidos y rutas relativas inválidas.
+    if not enlaces or not all(enlaces):
+        return dataframe, column_config
+
+    dataframe["Archivo"] = enlaces
+    column_config["Archivo"] = st.column_config.LinkColumn(
+        "Archivo",
+        width="large",
+        help="Haz clic en el nombre para abrir el PDF.",
+        display_text=r"app/static/pdfs/[a-f0-9]+/(.*)",
+    )
+    return dataframe, column_config
+
+
 def estilizar_tabla_planes(filas, configuracion):
-    dataframe = pd.DataFrame(filas)
+    dataframe = filas.copy() if isinstance(filas, pd.DataFrame) else pd.DataFrame(filas)
     if dataframe.empty or "Plan" not in dataframe.columns:
         return dataframe
 
@@ -82,6 +209,7 @@ def renderizar_tabla_resumen_planes(filas) -> None:
     configuracion = cargar_programas_planes(PROGRAMAS_PLANES_PATH)
     conteo = resumir_validacion_planes(filas, configuracion)
     requieren_revision = conteo["incorrectos"] + conteo["sin_configuracion"]
+    dataframe, column_config = preparar_dataframe_con_links_pdf(filas)
 
     st.caption(
         f"🟢 {conteo['correctos']} plan(es) coinciden · "
@@ -89,9 +217,20 @@ def renderizar_tabla_resumen_planes(filas) -> None:
         "El naranja indica un plan diferente o un programa aún no configurado."
     )
     st.dataframe(
-        estilizar_tabla_planes(filas, configuracion),
+        estilizar_tabla_planes(dataframe, configuracion),
         use_container_width=True,
         hide_index=True,
+        column_config=column_config,
+    )
+
+
+def renderizar_tabla_errores_con_links(filas) -> None:
+    dataframe, column_config = preparar_dataframe_con_links_pdf(filas)
+    st.dataframe(
+        dataframe,
+        use_container_width=True,
+        hide_index=True,
+        column_config=column_config,
     )
 
 
@@ -422,9 +561,8 @@ _APP_SOURCE = _APP_SOURCE.replace(
 
 _OLD_ERROR_TABLE_LINE = "        st.dataframe(filas_error, use_container_width=True)"
 _NEW_ERROR_TABLE_LINE = (
-    "        st.dataframe("
-    "ordenar_columnas_resultado(filas_error), "
-    "use_container_width=True)"
+    "        renderizar_tabla_errores_con_links("
+    "ordenar_columnas_resultado(filas_error))"
 )
 
 if _APP_SOURCE.count(_OLD_ERROR_TABLE_LINE) != 2:

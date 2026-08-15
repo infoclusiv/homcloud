@@ -23,6 +23,7 @@ __pycache__/
 uploads/
 outputs/
 diagnostic-packages/
+static/pdfs/
 
 # Logs / temp
 *.log
