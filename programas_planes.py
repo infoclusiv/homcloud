@@ -7,7 +7,7 @@ import re
 import unicodedata
 
 
-PROGRAMAS_PLANES_CONFIG_VERSION = 3
+PROGRAMAS_PLANES_CONFIG_VERSION = 4
 CAMPO_PERMITIR_PLAN_VACIO = "Permitir plan vacío"
 
 PROGRAMA_SST_PREGRADO = "Seguridad y Salud en el Trabajo Virtual"
@@ -45,7 +45,7 @@ PROGRAMAS_PLANES_DEFAULT = [
         "P2",
         "Mkt y negocios; Marketing y negocios; Mkt y negocios internacionales",
     ),
-    _programa("Psicología", "P4"),
+    _programa("Psicología", "P4", "Psicología Presencial"),
     _programa(
         PROGRAMA_SST_POSGRADO,
         "P2",
