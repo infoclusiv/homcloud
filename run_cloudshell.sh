@@ -5,7 +5,7 @@ set -Eeuo pipefail
 
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 BASE_DIR="$(pwd -P)"
-PORT="${HOMCLOUD_PORT:-8501}"
+PORT="${HOMCLOUD_PORT:-8080}"
 
 if [[ -z "${WEB_HOST:-}" ]]; then
   echo "Error: WEB_HOST no esta disponible. Este iniciador es solo para Google Cloud Shell." >&2
