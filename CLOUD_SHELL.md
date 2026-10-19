@@ -12,10 +12,10 @@ git pull --ff-only origin main
 bash ./run_cloudshell.sh
 ```
 
-Abre **Web Preview > Preview on port 8501**. El script tambien muestra
+Abre **Web Preview > Preview on port 8080**. El script tambien muestra
 la URL personalizada de esa cuenta, usando `WEB_HOST` (variable definida por Cloud Shell).
 
-Puedes utilizar simultaneamente el puerto 8501 en ambas cuentas: cada cuenta
+Puedes utilizar simultaneamente el puerto 8080 en ambas cuentas: cada cuenta
 dispone de su propia maquina y sus propios procesos.
 
 El script entra automaticamente en la carpeta donde reside, utiliza
@@ -23,11 +23,18 @@ El script entra automaticamente en la carpeta donde reside, utiliza
 **homcloud en esa misma carpeta** que estuviera usando el puerto.
 No detiene aplicaciones ajenas ni procesos de otra cuenta.
 
-Si una cuenta usa otro puerto:
+Si necesitas usar otro puerto por una razon especifica:
 
 ```bash
-HOMCLOUD_PORT=8502 bash ./run_cloudshell.sh
+HOMCLOUD_PORT=8501 bash ./run_cloudshell.sh
 ```
+
+No es necesario cambiar el puerto desde el menu de Cloud Shell en el uso habitual.
+La vista previa vuelve a mostrar 8080 al reabrir Cloud Shell, por lo que
+este es el valor predeterminado del script.
+
+**Nota:** el script inicia la aplicacion cuando lo ejecutas. No configura
+inicio automatico de procesos cuando Cloud Shell se reinicia.
 
 Deten la app con **Ctrl+C**.
 
