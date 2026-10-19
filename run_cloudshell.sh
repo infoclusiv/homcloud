@@ -7,12 +7,6 @@ cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 BASE_DIR="$(pwd -P)"
 PORT="${HOMCLOUD_PORT:-8080}"
 
-if [[ -z "${WEB_HOST:-}" ]]; then
-  echo "Error: WEB_HOST no esta disponible. Este iniciador es solo para Google Cloud Shell." >&2
-  echo "No se desactivaran las protecciones CORS/XSRF fuera de Cloud Shell." >&2
-  exit 1
-fi
-
 if [[ ! "$PORT" =~ ^[0-9]+$ ]] || (( 10#$PORT < 2000 || 10#$PORT > 65000 )); then
   echo "Error: HOMCLOUD_PORT debe estar entre 2000 y 65000." >&2
   exit 1
@@ -66,7 +60,9 @@ else
 fi
 
 echo "Iniciando homcloud en la cuenta de Cloud Shell actual..."
-echo "URL de esta cuenta: https://${PORT}-${WEB_HOST}"
+if [[ -n "${WEB_HOST:-}" ]]; then
+  echo "URL sugerida para esta cuenta: https://${PORT}-${WEB_HOST}"
+fi
 echo "Selecciona Web Preview > Preview on port $PORT."
 echo "Para detener la aplicacion, presiona Ctrl+C."
 
