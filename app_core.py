@@ -2655,17 +2655,54 @@ with st.container():
                 modelos_detectados = modelos_resultado.get("models", [])
                 opciones_modelo = [opcion_default_modelo] + modelos_detectados
 
+        # La búsqueda filtra por cualquier parte del identificador provider/model,
+        # sin modificar el modelo activo hasta que el usuario seleccione otro.
+        filtro_modelos = st.text_input(
+            "🔎 Buscar modelo OpenCode",
+            placeholder="Ejemplo: free, gemini, gpt, claude...",
+            key="filtro_modelos_opencode",
+            help="Busca por nombre, proveedor o palabra clave, sin distinguir mayúsculas.",
+        ).strip().casefold()
+
+        modelos_filtrados = [
+            modelo for modelo in modelos_detectados
+            if filtro_modelos in modelo.casefold()
+        ]
+        opciones_modelo_visibles = [opcion_default_modelo] + modelos_filtrados
+
+        # Mantener visible el modelo activo evita que escribir en el buscador
+        # cambie involuntariamente el modelo guardado.
+        if modelo_guardado_previo and modelo_guardado_previo not in opciones_modelo_visibles:
+            opciones_modelo_visibles.insert(1, modelo_guardado_previo)
+
+        if filtro_modelos:
+            st.caption(
+                f"{len(modelos_filtrados)} modelo(s) coinciden con '{filtro_modelos}'. "
+                "El modelo activo se conserva aunque no coincida con la búsqueda."
+            )
+
+        # Cuando se elige un modelo del listado, la entrada manual previa
+        # debe dejar de tener prioridad sobre esa nueva selección.
+        if "modelo_manual_opencode" not in st.session_state:
+            st.session_state["modelo_manual_opencode"] = modelo_manual_guardado
+
+        def _al_cambiar_modelo_detectado_opencode():
+            st.session_state["modelo_manual_opencode"] = ""
+
         modelo_seleccionado_ui = st.selectbox(
             "Modelo OpenCode",
-            options=opciones_modelo,
-            index=min(indice_modelo_guardado, max(0, len(opciones_modelo) - 1)),
+            options=opciones_modelo_visibles,
+            index=(
+                opciones_modelo_visibles.index(modelo_guardado_previo)
+                if modelo_guardado_previo in opciones_modelo_visibles else 0
+            ),
             key="modelo_detectado_opencode",
-            help="Selecciona un modelo detectado automáticamente por OpenCode o escribe uno manualmente más abajo.",
+            on_change=_al_cambiar_modelo_detectado_opencode,
+            help="Selecciona un modelo de los resultados o escribe uno manualmente más abajo.",
         )
 
         modelo_manual = st.text_input(
             "Modelo manual (opcional)",
-            value=modelo_manual_guardado,
             placeholder="Ejemplo: provider/model",
             key="modelo_manual_opencode",
         )
