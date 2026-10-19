@@ -2,6 +2,8 @@
 
 El repositorio es compartido; el entorno de cada cuenta es independiente.
 No se fija el nombre de usuario, la ruta /home ni el dominio de una cuenta.
+Este iniciador esta destinado a ejecutarse exclusivamente en sesiones autenticadas de Google Cloud Shell.
+No uses este script para desplegar servicios web publicos, porque desactiva las protecciones CORS/XSRF.
 
 ## Iniciar la web app en cada cuenta
 
@@ -12,8 +14,9 @@ git pull --ff-only origin main
 bash ./run_cloudshell.sh
 ```
 
-Abre **Web Preview > Preview on port 8080**. El script tambien muestra
-la URL personalizada de esa cuenta, usando `WEB_HOST` (variable definida por Cloud Shell).
+Abre **Web Preview > Preview on port 8080**. El script muestra la URL personalizada solo si `WEB_HOST` esta disponible.
+Esa variable es opcional: si no existe, usa el menu **Web Preview > Preview on port 8080**.
+No hace falta configurar `WEB_HOST`.
 
 Puedes utilizar simultaneamente el puerto 8080 en ambas cuentas: cada cuenta
 dispone de su propia maquina y sus propios procesos.
