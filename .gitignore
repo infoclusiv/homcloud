@@ -45,3 +45,7 @@ settings/timeouts.json
 settings/modelo_opencode.txt
 settings/timeouts.json
 settings/modelo_opencode.txt
+
+# Shared sync: local project selection and backups
+settings/cloud_sync.json
+settings/backups/
