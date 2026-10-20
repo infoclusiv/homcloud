@@ -11,6 +11,13 @@ from programas_planes import (
     evaluar_plan,
     guardar_programas_planes,
 )
+from programas_planes_sync import (
+    EdicionDesactualizada,
+    ErrorSincronizacion,
+    guardar_configuracion,
+    leer_configuracion,
+    proyecto_configurado,
+)
 from excel_runtime_patch import aplicar_soporte_excel
 
 
@@ -206,7 +213,11 @@ def resumir_validacion_planes(filas, configuracion) -> dict[str, int]:
 
 
 def renderizar_tabla_resumen_planes(filas) -> None:
-    configuracion = cargar_programas_planes(PROGRAMAS_PLANES_PATH)
+    try:
+        configuracion, _, _ = leer_configuracion(PROGRAMAS_PLANES_PATH)
+    except ErrorSincronizacion as exc:
+        st.error(f"Sincronización de planes no disponible: {exc}")
+        st.stop()
     conteo = resumir_validacion_planes(filas, configuracion)
     requieren_revision = conteo["incorrectos"] + conteo["sin_configuracion"]
     dataframe, column_config = preparar_dataframe_con_links_pdf(filas)
@@ -353,7 +364,18 @@ with st.container():
 '''
 
 _NEW_OPERATIONAL_CONFIG_BLOCK = '''timeouts_persistidos = cargar_timeouts_persistentes()
-programas_planes_guardados = cargar_programas_planes(PROGRAMAS_PLANES_PATH)
+try:
+    programas_planes_guardados, revision_planes, proyecto_planes = leer_configuracion(PROGRAMAS_PLANES_PATH)
+    error_sync_planes = None
+except ErrorSincronizacion as exc:
+    programas_planes_guardados, revision_planes, proyecto_planes = [], None, None
+    error_sync_planes = str(exc)
+
+if st.session_state.get("_revision_editor_planes") != revision_planes:
+    # No sobrescribir silenciosamente la edición ya abierta: el usuario
+    # debe pulsar "Recargar de nube" si su revisión difiere.
+    if "_revision_editor_planes" not in st.session_state:
+        st.session_state["_revision_editor_planes"] = revision_planes
 
 with st.container():
     st.markdown(
@@ -397,6 +419,22 @@ with st.container():
                 "El catálogo inicial ya está cargado. Separa varios alias con punto y coma; "
                 "cada alias se reconocerá como el mismo programa oficial."
             )
+            if error_sync_planes:
+                st.error(f"Configuración remota no disponible: {error_sync_planes}")
+                st.warning("No se permiten guardados mientras falla Firestore.")
+            elif proyecto_planes:
+                st.caption(f"☁️ Configuración central: {proyecto_planes}")
+            else:
+                st.caption("📁 Modo local (Firestore no configurado).")
+
+            if st.button("🔄 Recargar programas desde la nube", key="btn_recargar_planes", disabled=bool(error_sync_planes)):
+                st.session_state.pop("editor_programas_planes", None)
+                st.session_state["_revision_editor_planes"] = revision_planes
+                reiniciar_app_streamlit()
+
+            if st.session_state.get("_revision_editor_planes") != revision_planes:
+                st.warning("Hay cambios guardados desde otra sesión. Recarga antes de guardar.")
+
             programas_planes_editados = st.data_editor(
                 programas_planes_guardados
                 or [{
@@ -440,22 +478,26 @@ with st.container():
                     "💾 Guardar programas y planes",
                     use_container_width=True,
                     key="btn_guardar_programas_planes",
+                    disabled=bool(error_sync_planes) or st.session_state.get("_revision_editor_planes") != revision_planes,
                 )
             with col_ruta_programas:
                 st.caption(f"Configuración persistente: {PROGRAMAS_PLANES_PATH}")
 
             if guardar_programas_click:
                 try:
-                    programas_guardados = guardar_programas_planes(
+                    programas_guardados = guardar_configuracion(
                         programas_planes_editados,
                         PROGRAMAS_PLANES_PATH,
+                        revision_esperada=st.session_state.get("_revision_editor_planes"),
                     )
-                except ValueError as error_programas:
+                except (ValueError, ErrorSincronizacion) as error_programas:
                     st.error(str(error_programas))
                 else:
                     st.success(
                         f"Se guardaron {len(programas_guardados)} relación(es) programa–plan."
                     )
+                    st.session_state.pop("editor_programas_planes", None)
+                    st.session_state.pop("_revision_editor_planes", None)
                     reiniciar_app_streamlit()
 
             st.caption(
