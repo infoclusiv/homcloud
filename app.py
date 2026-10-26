@@ -433,27 +433,61 @@ with st.container():
             st.caption("Recomendado: 2 a 6 procesos simultáneos. Máximo disponible: 20.")
 
         with st.expander("🧹 Almacenamiento local", expanded=False):
-            uso = inventario(BASE_DIR)
-            st.metric("Almacenamiento de lotes", f"{uso['bytes'] / 1048576:.1f} MB")
-            st.caption(f"{uso['archivos']} archivos almacenados")
-            for nombre_carpeta, datos_carpeta in uso["carpetas"].items():
-                st.caption(f"{nombre_carpeta}: {datos_carpeta['bytes'] / 1048576:.1f} MB")
+            st.caption(
+                "El análisis del disco se ejecuta solo cuando lo solicitas: "
+                "evita recorrer miles de documentos cada vez que actualizas la aplicación."
+            )
             dias = int(preferencias_operativas.get("retencion_dias", 7))
             lote_activo = st.session_state.get("ultimo_lote") or {}
-            protegidos = {str(lote_activo.get("run_id") or ""), str(lote_activo.get("parent_run_id") or "")}
-            candidatos = candidatos_limpieza(BASE_DIR, dias, protegidos)
-            st.caption(f"Retención: {dias} días · {len(candidatos)} elementos candidatos.")
-            confirmar_limpieza = st.checkbox(
-                "Ya tengo respaldo de los resultados antiguos", key="confirmar_limpieza_lotes"
+            protegidos = {
+                str(lote_activo.get("run_id") or ""),
+                str(lote_activo.get("parent_run_id") or ""),
+            }
+            if st.button("🔎 Analizar almacenamiento ahora", key="analizar_almacenamiento"):
+                st.session_state["_uso_almacenamiento"] = inventario(BASE_DIR)
+                st.session_state["_candidatos_almacenamiento"] = candidatos_limpieza(
+                    BASE_DIR, dias, protegidos
+                )
+                st.session_state["_retencion_analizada_dias"] = dias
+            uso = st.session_state.get("_uso_almacenamiento")
+            candidatos = st.session_state.get("_candidatos_almacenamiento") or []
+            if uso:
+                st.metric("Espacio físico estimado de lotes", f"{uso['bytes'] / 1048576:.1f} MB")
+                st.caption(f"{uso['archivos']} entradas (los hard links solo ocupan una copia física).")
+                for nombre_carpeta, datos_carpeta in uso["carpetas"].items():
+                    st.caption(
+                        f"{nombre_carpeta}: {datos_carpeta['bytes'] / 1048576:.1f} MB "
+                        f"· {datos_carpeta['archivos']} archivo(s)"
+                    )
+                st.caption(
+                    f"Retención analizada: {st.session_state.get('_retencion_analizada_dias')} "
+                    f"días · {len(candidatos)} elementos antiguos candidatos."
+                )
+                if dias != st.session_state.get("_retencion_analizada_dias"):
+                    st.warning("Cambió la retención global. Vuelve a analizar antes de limpiar.")
+                confirmar_limpieza = st.checkbox(
+                    "Tengo respaldo de todos los resultados antiguos que deseo conservar",
+                    key="confirmar_limpieza_lotes",
+                )
+                if st.button(
+                    "Eliminar archivos antiguos", key="borrar_lotes_antiguos",
+                    disabled=(not confirmar_limpieza or not candidatos
+                              or dias != st.session_state.get("_retencion_analizada_dias")),
+                ):
+                    try:
+                        borrados = limpiar_archivos_antiguos(BASE_DIR, dias, protegidos)
+                    except OSError as exc:
+                        st.error(f"No se pudo completar la limpieza: {exc}")
+                    else:
+                        st.success(f"Se eliminaron {len(borrados)} elementos antiguos de ESTE Cloud Shell.")
+                        st.session_state.pop("_uso_almacenamiento", None)
+                        st.session_state.pop("_candidatos_almacenamiento", None)
+            else:
+                st.info("Pulsa Analizar almacenamiento para calcular el uso actual.")
+            st.caption(
+                "La limpieza es manual y no afecta al otro Cloud Shell ni a Firestore. "
+                "Los lotes en ejecución o interrumpidos con marca activa quedan protegidos."
             )
-            if st.button("Eliminar archivos antiguos", key="borrar_lotes_antiguos",
-                         disabled=not confirmar_limpieza or not candidatos):
-                try:
-                    borrados = limpiar_archivos_antiguos(BASE_DIR, dias, protegidos)
-                    st.success(f"Se eliminaron {len(borrados)} elementos antiguos de este Cloud Shell.")
-                except OSError as exc:
-                    st.error(f"No se pudo completar la limpieza: {exc}")
-            st.caption("Limpieza manual local. No afecta al otro Cloud Shell ni a Firestore.")
 
     with col_programas:
         with st.expander(
