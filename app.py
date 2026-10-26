@@ -418,10 +418,16 @@ with st.container():
             st.caption(f"Predeterminado: {preferencias_operativas['procesos_predeterminados']} · {'Firestore compartido' if proyecto_operativo else 'Modo local'}")
             if st.session_state["_revision_preferencias_operativas"] != revision_operativa:
                 st.warning("Las preferencias cambiaron en otra sesión. Recarga antes de guardar.")
+            retencion_dias = st.number_input(
+                "Retención de archivos (días)", min_value=1, max_value=90,
+                value=int(preferencias_operativas["retencion_dias"]), step=1,
+                help="Se comparte el número de días; la eliminación se realiza manualmente en cada Cloud Shell.",
+                key="retencion_dias_global",
+            )
             if st.button("💾 Guardar predeterminado global", key="guardar_concurrencia_global",
                          disabled=st.session_state["_revision_preferencias_operativas"] != revision_operativa):
                 try:
-                    guardar_preferencias({"procesos_predeterminados": max_workers_opencode}, revision_operativa)
+                    guardar_preferencias({"procesos_predeterminados": max_workers_opencode, "retencion_dias": int(retencion_dias)}, revision_operativa)
                 except (ValueError, ErrorSincronizacion) as exc:
                     st.error(str(exc))
                 else:
