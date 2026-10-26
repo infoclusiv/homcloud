@@ -49,3 +49,6 @@ settings/modelo_opencode.txt
 # Shared sync: local project selection and backups
 settings/cloud_sync.json
 settings/backups/
+
+# Local fallback for operational preferences
+settings/operacion_global.json
