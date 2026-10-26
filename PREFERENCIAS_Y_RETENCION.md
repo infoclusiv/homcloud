@@ -65,16 +65,63 @@ Las actas, resultados y AHK pueden contener información personal. **No expongas
 ```bash
 cd ~/homcloud
 git pull --ff-only origin main
-.venv/bin/python -m unittest test_configuracion_global test_recuperacion_lotes test_integridad_app -v
+.venv/bin/python -m unittest test_configuracion_global test_operativa_compartida test_recuperacion_lotes test_integridad_app -v
 bash ./run_cloudshell.sh
 ```
 
 Realiza una prueba manual con 3 PDFs en una pestaña y abre **Recuperar resultados** en otra. Tras el primer PDF completado, confirma que se puede descargar su CSV y AHK sin esperar a los otros. Prueba a recuperar un lote interrumpido y reintentar exclusivamente los errores. Verifica que no se crearon archivos nuevos en `static/pdfs` ni `static/exports`.
 
-## Pendientes para una futura fase
+## Sincronización compartida de prompts, modelo y timeouts
 
-- Compartir prompts Pregrado/Posgrado en Firestore con control de revisión, versionado y respaldo.
-- Definir modelo predeterminado y timeouts globales con posibilidad de excepción por Cloud Shell.
+Cada tipo de configuración está en un documento **independiente** de Firestore:
+- `homcloud_config/prompts_compartidos`: prompts Pregrado y Posgrado (hasta 30 000 caracteres por prompt).
+- `homcloud_config/modelo_compartidos`: cadena del modelo OpenCode, vacía para utilizar el modelo por defecto.
+- `homcloud_config/timeouts_compartidos`: timeout OpenCode (5–45 min) y PDF (5–90 min).
+
+El documento de programas/planes y las preferencias de concurrencia/retención **no se modifican**.
+
+### Primera publicación segura
+
+**Elige primero el Cloud Shell que contiene los prompts y ajustes correctos, preferiblemente `infoclusiv`.** Haz respaldo de `prompts/`, `settings/modelo_opencode.txt` y `settings/timeouts.json` en una ubicación segura. Solo entonces, en la interfaz:
+
+1. En **Configuración rápida**, abre **Sincronización de prompts, modelo y timeouts**.
+2. Comprueba que todavía no haya documentos globales publicados. Hasta su publicación, los valores de cada cuenta siguen siendo locales.
+3. Revisa Pregrado y Posgrado y pulsa **Publicar ambos prompts globalmente**.
+4. Verifica el modelo activo y pulsa **Publicar este modelo globalmente**.
+5. Revisa los timeouts y pulsa **Publicar estos timeouts globalmente**.
+6. En el otro Cloud Shell, pulsa **Recargar ajustes desde Firestore** o abre una nueva sesión y verifica los tres ajustes.
+
+**Nunca** se realiza una publicación automática desde un archivo de una cuenta. Si Firestore falla, la interfaz muestra un error y bloquea procesamientos y publicaciones mientras sea necesario; no actúa como si la última copia local fuera la versión global actual.
+
+### Excepciones locales
+
+En el mismo panel se puede activar de manera **independiente**:
+- Usar prompts propios solo en este Cloud Shell.
+- Usar modelo propio solo en este Cloud Shell.
+- Usar timeouts propios solo en este Cloud Shell.
+
+Las excepciones se guardan en `settings/excepciones_cloudshell.json`, excluido de Git. Con la excepción activada, el archivo local de esa cuenta tiene prioridad sobre Firestore. Con ella desactivada, se utiliza el valor global disponible, sin sobrescribir el archivo local.
+
+Los cambios en el editor pueden aplicarse al lote de la sesión en curso. Para compartirlos debes pulsar el botón **Publicar ... globalmente** correspondiente. La publicación comprueba que la versión de Firestore no haya cambiado desde que abriste el editor. Si otra cuenta guardó una versión nueva, debes recargarla antes de volver a publicar.
+
+### Historial y restauración
+
+Cada actualización global de un documento existente archiva el contenido anterior en su subcolección `historial` de Firestore. Desde **Consultar historial de versiones** puedes elegir una versión anterior y restaurarla con confirmación; la restauración guarda a su vez un historial de la versión reemplazada.
+
+La interfaz carga como máximo diez entradas por categoría por consulta. Para conservar un respaldo a largo plazo, exporta tus prompts fuera de Firestore según la política de datos de la institución. No introduzcas credenciales, secretos, ni información personal de estudiantes en los prompts compartidos.
+
+### Verificaciones
+
+```bash
+cd ~/homcloud
+git pull --ff-only origin main
+.venv/bin/python -m unittest test_configuracion_global test_operativa_compartida test_recuperacion_lotes test_integridad_app -v
+bash ./run_cloudshell.sh
+```
+
+Comprueba desde los dos Cloud Shell: publicación inicial, lectura global después de recargar, cambio en una cuenta detectado como revisión nueva en la otra, excepción local de modelo y timeouts, y restauración controlada de una versión anterior.
+
+## Pendientes para una futura fase
 - Añadir un semáforo distribuido para limitar consumo combinado de APIs de ambos Cloud Shell.
 - Considerar respaldo externo privado y cifrado de históricos tras validar políticas de conservación de documentos.
 - No automatizar borrados hasta contar con mecanismos de restauración probados y una forma supervisada de cerrar marcadores de procesos huérfanos.
