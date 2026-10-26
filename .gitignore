@@ -52,3 +52,6 @@ settings/backups/
 
 # Local fallback for operational preferences
 settings/operacion_global.json
+
+# Private per-Cloud-Shell opt-outs; never synchronize or commit
+settings/excepciones_cloudshell.json
