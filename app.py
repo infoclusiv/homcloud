@@ -21,6 +21,13 @@ from excel_runtime_patch import aplicar_soporte_excel
 from configuracion_global import leer_preferencias, guardar_preferencias
 from retencion_local import inventario, candidatos_limpieza, limpiar_archivos_antiguos
 from pdf_enlaces import publicar_pdf
+from configuracion_tabla import (
+    ORDEN_PREDETERMINADO,
+    leer_orden,
+    guardar_orden,
+    mover_columna,
+    ordenar_visibles,
+)
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -160,7 +167,113 @@ def resumir_validacion_planes(filas, configuracion) -> dict[str, int]:
     return conteo
 
 
+TABLAS_RESUMEN_RENDERIZADAS = 0
+
+
+def _configuracion_ancho_resumen(column_config: dict) -> dict:
+    """Evita que nombres de programas enormes desplacen Plan fuera de pantalla."""
+    config = dict(column_config)
+    # El orden inicial hace que Plan aparezca después de los dos programas.
+    # Las anchuras se expresan en px para no autosize por textos extensos.
+    anchos = {
+        "Archivo": 245,
+        "Prompt usado": 105,
+        "Programa origen": 205,
+        "Programa al que aspira": 240,
+        "Plan": 66,
+        "Nivel": 95,
+        "Estado": 118,
+        "Error": 115,
+        "Créditos homologados": 148,
+        "Duración": 95,
+        "Fase actual": 110,
+    }
+    for columna, ancho in anchos.items():
+        if columna == "Archivo" and "Archivo" in config:
+            config["Archivo"] = st.column_config.LinkColumn(
+                "Archivo", width=ancho,
+                help="Haz clic para abrir el PDF en otra pestaña.",
+                display_text=r"app/static/pdfs/[a-f0-9]+/(.*)",
+            )
+        elif columna != "Archivo":
+            config[columna] = st.column_config.TextColumn(
+                columna, width=ancho,
+                help=("El ancho es compacto para mantener Plan a la vista. "
+                      "El contenido completo se conserva en el resultado y el CSV."),
+            )
+    return config
+
+
+def _disposicion_guardada_resumen(sufijo: str) -> list[str]:
+    """Lee el orden global. Los controles guardan cada movimiento inmediatamente."""
+    try:
+        orden, revision, proyecto = leer_orden()
+    except (ErrorSincronizacion, ValueError) as exc:
+        st.warning(
+            f"No se pudo recuperar el orden global de columnas: {exc}. "
+            "Se mostrará el orden preferido predeterminado."
+        )
+        return list(ORDEN_PREDETERMINADO)
+
+    with st.expander("⚙️ Personalizar el orden de las columnas", expanded=False):
+        st.caption(
+            "Elige una columna y muévela con las flechas. Cada cambio se guarda "
+            "automáticamente para las siguientes tandas y para el otro Cloud Shell. "
+            "Arrastrar columnas directamente dentro de la tabla solo cambia la vista "
+            "del navegador y no se puede guardar desde Streamlit."
+        )
+        sel_col, mover_izq, mover_der, mover_inicio = st.columns([3.5, 1, 1, 1.4])
+        with sel_col:
+            columna = st.selectbox(
+                "Columna que quieres mover",
+                options=orden,
+                index=orden.index("Plan") if "Plan" in orden else 0,
+                key=f"seleccion_columna_resumen_{sufijo}",
+            )
+        posicion = orden.index(columna)
+        acciones = (
+            (mover_izq, "←", "izquierda", posicion == 0),
+            (mover_der, "→", "derecha", posicion == len(orden) - 1),
+            (mover_inicio, "Al inicio", "inicio", posicion == 0),
+        )
+        for destino, etiqueta, movimiento, inhabilitado in acciones:
+            with destino:
+                pulsado = st.button(
+                    etiqueta,
+                    help=f"Mover {columna}: {movimiento}",
+                    key=f"mover_columna_{movimiento}_{sufijo}",
+                    disabled=inhabilitado,
+                    use_container_width=True,
+                )
+                if pulsado:
+                    try:
+                        nuevo = mover_columna(orden, columna, movimiento)
+                        guardar_orden(nuevo, revision)
+                    except (ValueError, ErrorSincronizacion) as exc:
+                        st.error(f"No se pudo guardar el orden: {exc}")
+                    else:
+                        st.rerun()
+        st.caption(
+            "Orden global en Firestore." if proyecto
+            else "Orden guardado en este Cloud Shell (Firestore no configurado)."
+        )
+        if st.button(
+            "Restablecer distribución recomendada",
+            key=f"restablecer_columnas_resumen_{sufijo}",
+        ):
+            try:
+                guardar_orden(list(ORDEN_PREDETERMINADO), revision)
+            except (ValueError, ErrorSincronizacion) as exc:
+                st.error(f"No se pudo restablecer el orden: {exc}")
+            else:
+                st.rerun()
+    return orden
+
+
 def renderizar_tabla_resumen_planes(filas) -> None:
+    global TABLAS_RESUMEN_RENDERIZADAS
+    TABLAS_RESUMEN_RENDERIZADAS += 1
+    sufijo = str(TABLAS_RESUMEN_RENDERIZADAS)
     try:
         configuracion, _, _ = leer_configuracion(PROGRAMAS_PLANES_PATH)
     except ErrorSincronizacion as exc:
@@ -169,6 +282,10 @@ def renderizar_tabla_resumen_planes(filas) -> None:
     conteo = resumir_validacion_planes(filas, configuracion)
     requieren_revision = conteo["incorrectos"] + conteo["sin_configuracion"]
     dataframe, column_config = preparar_dataframe_con_links_pdf(filas)
+    orden = _disposicion_guardada_resumen(sufijo)
+    columnas = ordenar_visibles(dataframe.columns, orden)
+    dataframe = dataframe[columnas]
+    column_config = _configuracion_ancho_resumen(column_config)
 
     st.caption(
         f"🟢 {conteo['correctos']} plan(es) coinciden · "
@@ -179,17 +296,25 @@ def renderizar_tabla_resumen_planes(filas) -> None:
         estilizar_tabla_planes(dataframe, configuracion),
         use_container_width=True,
         hide_index=True,
+        column_order=columnas,
         column_config=column_config,
     )
 
 
 def renderizar_tabla_errores_con_links(filas) -> None:
     dataframe, column_config = preparar_dataframe_con_links_pdf(filas)
+    try:
+        orden, _, _ = leer_orden()
+    except (ErrorSincronizacion, ValueError):
+        orden = list(ORDEN_PREDETERMINADO)
+    columnas = ordenar_visibles(dataframe.columns, orden)
+    dataframe = dataframe[columnas]
     st.dataframe(
         dataframe,
         use_container_width=True,
         hide_index=True,
-        column_config=column_config,
+        column_order=columnas,
+        column_config=_configuracion_ancho_resumen(column_config),
     )
 
 
