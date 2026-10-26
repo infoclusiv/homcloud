@@ -1504,25 +1504,46 @@ def obtener_filas_con_error(filas: list[dict]) -> list[dict]:
 
 
 def cargar_pdf_jobs_desde_lote(run_id: str, filas_error: list[dict]) -> tuple[list[ArchivoSubidoEnMemoria], list[str]]:
-    """
-    Reconstruye los PDF originales desde uploads/<run_id>/ para permitir reintentos
-    incluso si el widget de subida ya no tiene los archivos en memoria.
-    """
-    jobs = []
-    no_encontrados = []
-    run_uploads_dir = UPLOADS_DIR / run_id
+    """Busca originales en el lote y sus antecesores, incluidos los reintentos.
 
+    Una recuperación combinada puede contener errores de la tanda inicial.
+    No todos sus PDFs están en uploads/<run_id> del reintento más reciente.
+    """
+    from recuperacion_lotes import leer_json, validar_run_id
+
+    validar_run_id(run_id)
+    ids_lotes = []
+    visitados = set()
+    actual = run_id
+    while actual and actual not in visitados and len(ids_lotes) < 12:
+        validar_run_id(actual)
+        visitados.add(actual)
+        ids_lotes.append(actual)
+        ruta = RUNS_DIR / actual
+        meta = leer_json(ruta / "metadata_lote.json")
+        anterior = str(meta.get("parent_run_id") or "").strip()
+        if not anterior:
+            combinado = leer_json(ruta / "metadata_resultado_combinado.json")
+            anterior = str(combinado.get("run_id_base") or "").strip()
+        actual = anterior
+
+    jobs, no_encontrados = [], []
     for fila in filas_error:
-        nombre_archivo = sanitizar_nombre_archivo(fila.get("Archivo", ""))
-        pdf_path = run_uploads_dir / nombre_archivo
-
-        if not nombre_archivo or not pdf_path.exists() or not pdf_path.is_file():
-            no_encontrados.append(nombre_archivo or "Archivo sin nombre")
+        nombre_archivo = Path(sanitizar_nombre_archivo(str(fila.get("Archivo") or ""))).name
+        if not nombre_archivo or nombre_archivo == "documento.pdf" and not fila.get("Archivo"):
+            no_encontrados.append("Archivo sin nombre")
             continue
-
+        ruta_pdf = next(
+            (UPLOADS_DIR / id_lote / nombre_archivo for id_lote in ids_lotes
+             if (UPLOADS_DIR / id_lote / nombre_archivo).is_file()),
+            None,
+        )
+        if ruta_pdf is None:
+            no_encontrados.append(nombre_archivo)
+            continue
         try:
-            jobs.append(ArchivoSubidoEnMemoria(nombre_archivo, pdf_path.read_bytes()))
-        except Exception:
+            jobs.append(ArchivoSubidoEnMemoria(nombre_archivo, ruta_pdf.read_bytes()))
+        except OSError:
             no_encontrados.append(nombre_archivo)
 
     return jobs, no_encontrados
@@ -3137,33 +3158,34 @@ if 'reintentar_click' in locals() and reintentar_click:
         else:
             st.warning("No hay PDFs disponibles para reintentar.")
 
-# Recuperación local tras cierre del navegador o reinicio de Streamlit.
-# No sustituye ni modifica el lote activo en la memoria del usuario.
-if not st.session_state.get("ultimo_lote"):
-    lotes_recuperables = sorted(
-        (p for p in RUNS_DIR.iterdir() if p.is_dir() and (p / "resumen_resultados_parcial.csv").is_file()),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
+# El historial se puede recuperar también cuando ya hay un último lote en sesión.
+# Se usa la misma lógica que la página independiente de descargas.
+from recuperacion_lotes import listar_lotes, recuperar_lote
+lotes_recuperables = listar_lotes(BASE_DIR)
+with st.expander(
+    "♻️ Recuperar o cambiar de lote anterior",
+    expanded=not bool(st.session_state.get("ultimo_lote")) and bool(lotes_recuperables),
+):
     if lotes_recuperables:
-        ultimo_recuperable = lotes_recuperables[0]
-        st.info(f"Hay resultados parciales recuperables del lote {ultimo_recuperable.name}.")
-        if st.button("♻️ Recuperar resultados parciales", key="recuperar_ultimo_parcial"):
-            with (ultimo_recuperable / "resumen_resultados_parcial.csv").open("r", encoding="utf-8-sig", newline="") as f:
-                filas_recuperadas = list(csv.DictReader(f))
-            zip_parcial = ultimo_recuperable / "scripts_ahk.zip"
-            csv_parcial = ultimo_recuperable / "resumen_resultados_parcial.csv"
-            st.session_state["ultimo_lote"] = {
-                "run_id": ultimo_recuperable.name,
-                "run_outputs_dir": str(ultimo_recuperable),
-                "run_uploads_dir": str(UPLOADS_DIR / ultimo_recuperable.name),
-                "filas": filas_recuperadas,
-                "filas_error": obtener_filas_con_error(filas_recuperadas),
-                "resumen_csv_path": str(csv_parcial),
-                "zip_ahk_path": str(zip_parcial) if zip_parcial.is_file() else "",
-                "es_resultado_combinado": False,
-            }
-            reiniciar_app_streamlit()
+        seleccionado_recuperacion = st.selectbox(
+            "Lote guardado localmente",
+            options=lotes_recuperables,
+            key="selector_lote_a_recuperar",
+        )
+        st.caption(
+            "Los PDFs que no alcanzaron a generar una fila serán marcados como "
+            "errores reintentables. Los reintentos parciales se fusionan con su lote original."
+        )
+        if st.button("Recuperar este lote y habilitar reintentos", key="recuperar_lote_seleccionado"):
+            try:
+                recuperado = recuperar_lote(BASE_DIR, seleccionado_recuperacion)
+            except (ValueError, OSError, UnicodeError) as exc:
+                st.error(f"No se pudo recuperar el lote: {exc}")
+            else:
+                st.session_state["ultimo_lote"] = recuperado
+                reiniciar_app_streamlit()
+    else:
+        st.caption("No existen lotes locales recuperables.")
 
 if st.session_state.get("ultimo_lote") and not lote_ejecutado_en_esta_corrida:
     st.divider()
