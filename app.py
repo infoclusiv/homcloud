@@ -321,10 +321,16 @@ def guardar_csv_resumen(path: Path, filas: list):
     filas_ordenadas = ordenar_columnas_resultado(filas)
     fieldnames = list(filas_ordenadas[0].keys())
 
-    with open(path, "w", encoding="utf-8-sig", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(filas_ordenadas)
+    # Escritura atómica: los lectores solo ven un CSV íntegro.
+    temporal = path.with_name(path.name + ".tmp")
+    try:
+        with open(temporal, "w", encoding="utf-8-sig", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(filas_ordenadas)
+        os.replace(temporal, path)
+    finally:
+        temporal.unlink(missing_ok=True)
 '''
 
 if _OLD_COLUMN_ORDER_BLOCK not in _APP_SOURCE:
