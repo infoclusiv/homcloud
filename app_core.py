@@ -2783,6 +2783,81 @@ with st.container():
         st.markdown('<div class="panel-title">⚡ Configuración rápida</div>', unsafe_allow_html=True)
         st.markdown('<div class="panel-subtitle">Define el modelo, ajusta los prompts y deja guardadas las tolerancias del procesamiento.</div>', unsafe_allow_html=True)
 
+        with st.expander("☁️ Sincronización de prompts, modelo y timeouts", expanded=False):
+            st.caption(
+                "Los ajustes publicados en Firestore se utilizan en ambas cuentas, "
+                "salvo que actives una excepción local. Publicar es siempre manual; "
+                "no se reemplazan los archivos de configuración locales."
+            )
+            if errores_globales:
+                for tipo_error, descripcion_error in errores_globales.items():
+                    st.error(f"{tipo_error}: {descripcion_error}")
+                st.warning("No se puede publicar ni procesar hasta recuperar la sincronización.")
+            for tipo in TIPOS_GLOBALES:
+                inicial = bool(excepciones_cuenta.get(tipo))
+                key_excepcion = f"excepcion_local_{tipo}"
+                if key_excepcion not in st.session_state:
+                    st.session_state[key_excepcion] = inicial
+                elegido = st.checkbox(
+                    f"Usar {tipo} propios solo en este Cloud Shell",
+                    key=key_excepcion,
+                    help="Los archivos locales se conservan aunque no esté marcada la excepción.",
+                )
+                if elegido != inicial:
+                    try:
+                        guardar_excepcion(tipo, elegido)
+                    except (ValueError, OSError) as exc:
+                        st.error(f"No se guardó la excepción local: {exc}")
+                    else:
+                        _reiniciar_controles_globales()
+                if not proyectos_globales.get(tipo) and not errores_globales:
+                    st.caption(f"{tipo}: Firestore no configurado; se usan archivos locales.")
+                elif bloques_globales.get(tipo) is None:
+                    st.caption(f"{tipo}: todavía no se ha publicado una versión global.")
+                else:
+                    st.caption(f"{tipo}: versión compartida disponible.")
+                if (not excepciones_cuenta.get(tipo)
+                        and st.session_state.get(f"_revision_global_vista_{tipo}") != revisiones_globales[tipo]):
+                    st.warning(f"{tipo} cambió desde otra sesión: recarga antes de procesar o publicar.")
+            if st.button("🔄 Recargar ajustes desde Firestore", key="recargar_bloques_globales"):
+                _reiniciar_controles_globales()
+
+            if st.button("📚 Consultar historial de versiones", key="consultar_historial_global",
+                         disabled=bool(errores_globales)):
+                st.session_state["_historial_global_vista"] = {}
+                for tipo in TIPOS_GLOBALES:
+                    try:
+                        st.session_state["_historial_global_vista"][tipo] = listar_historial(tipo)
+                    except ErrorConfigGlobal as exc:
+                        st.error(str(exc))
+            historicos = st.session_state.get("_historial_global_vista", {})
+            for tipo in TIPOS_GLOBALES:
+                versiones = historicos.get(tipo, [])
+                if not versiones:
+                    continue
+                seleccion = st.selectbox(
+                    f"Versión anterior de {tipo}",
+                    options=[f"{v['archived_at']} · {v['id']}" for v in versiones],
+                    key=f"version_previa_{tipo}",
+                )
+                confirmar_restore = st.checkbox(
+                    f"Confirmo restaurar {tipo} globalmente",
+                    key=f"confirmar_restauracion_global_{tipo}",
+                )
+                if st.button(f"Restaurar {tipo}", key=f"restaurar_global_{tipo}",
+                             disabled=not confirmar_restore):
+                    version_id = seleccion.rsplit(" · ", 1)[-1]
+                    try:
+                        restaurar_historial(
+                            tipo, version_id,
+                            st.session_state[f"_revision_global_vista_{tipo}"],
+                        )
+                    except (ValueError, ErrorConfigGlobal) as exc:
+                        st.error(str(exc))
+                    else:
+                        st.session_state.pop("_historial_global_vista", None)
+                        _reiniciar_controles_globales()
+
         if st.button("🔄 Actualizar modelos", use_container_width=True, key="btn_actualizar_modelos_rapido"):
             with st.spinner("Consultando modelos con opencode models --refresh..."):
                 st.session_state.modelos_opencode_resultado = obtener_modelos_opencode(refresh=True)
