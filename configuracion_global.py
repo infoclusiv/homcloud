@@ -17,7 +17,7 @@ LOCAL_PATH = Path(__file__).resolve().parent / "settings" / "operacion_global.js
 COLECCION = "homcloud_config"
 DOCUMENTO = "preferencias_operativas"
 VERSION = 1
-DEFAULTS = {"procesos_predeterminados": 4}
+DEFAULTS = {"procesos_predeterminados": 4, "retencion_dias": 7}
 
 
 def validar_preferencias(data: dict) -> dict:
@@ -32,7 +32,16 @@ def validar_preferencias(data: dict) -> dict:
         raise ValueError("El número de procesos debe ser un entero.") from exc
     if str(numero) != str(valor).strip() or not 1 <= numero <= 20:
         raise ValueError("Los procesos simultáneos deben estar entre 1 y 20.")
-    return {"procesos_predeterminados": numero}
+    dias = data.get("retencion_dias", 7)
+    if isinstance(dias, bool):
+        raise ValueError("La retención debe expresarse en días enteros.")
+    try:
+        dias_numero = int(dias)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("La retención debe expresarse en días enteros.") from exc
+    if str(dias_numero) != str(dias).strip() or not 1 <= dias_numero <= 90:
+        raise ValueError("La retención debe estar entre 1 y 90 días.")
+    return {"procesos_predeterminados": numero, "retencion_dias": dias_numero}
 
 
 def _cliente_y_doc(proyecto):
