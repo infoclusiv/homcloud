@@ -13,6 +13,28 @@ Sin proyecto Firestore configurado, las preferencias se guardan localmente en `s
 
 **Importante:** el límite de concurrencia se aplica **por Cloud Shell**. Dos instancias con 10 procesos cada una pueden ejecutar hasta 20 workers combinados; no hay un semáforo compartido de cuotas de OpenCode/LLMWhisperer.
 
+## Distribución del resumen final y columna Plan
+
+La tabla **Resumen final** abre con este orden (tomado de la vista solicitada):
+**Archivo → Prompt usado → Programa origen → Programa al que aspira → Plan → Nivel → Estado → Error → Créditos homologados**, seguido de las columnas técnicas.
+
+Los dos programas tienen anchuras limitadas (205 y 240 px), y el archivo tiene 245 px. Esto evita que textos extremadamente largos oculten *Plan* detrás de varios desplazamientos horizontales. Los nombres completos se conservan en los datos y CSV; se trata solo de una preferencia de visualización.
+
+Para personalizarlo abre **⚙️ Personalizar el orden de las columnas** encima del resultado, selecciona la columna y pulsa **←**, **→** o **Al inicio**. Cada clic **guarda inmediatamente** el nuevo orden. También hay un botón **Restablecer distribución recomendada**. Las siguientes tandas, las vistas de resultados recuperados dentro de la app y la otra cuenta de Cloud Shell utilizan esa disposición.
+
+Se guarda en Firestore bajo `homcloud_config/columnas_resumen` si ambos Cloud Shell están conectados al mismo proyecto. Se detectan conflictos cuando otra sesión guarda antes. Sin Firestore se guarda en `settings/columnas_resumen.json` y **solo** vale en ese Cloud Shell. Ni los prompts ni la concurrencia ni los CSV cambian cuando mueves una columna.
+
+**Limitación de Streamlit:** arrastrar una columna directamente en la tabla modifica la disposición momentánea del navegador, pero Streamlit no expone ese gesto al código Python para persistirlo. **Para conservar el orden usa el panel de flechas.**
+
+Prueba rápida después de actualizar:
+
+```bash
+cd ~/homcloud
+git pull --ff-only origin main
+.venv/bin/python -m unittest test_configuracion_tabla test_integridad_app -v
+bash ./run_cloudshell.sh
+```
+
 ## Descargas sin esperar a terminar
 
 Abre homcloud y, desde el menú lateral, entra a **Recuperar resultados**. Puedes abrir esa página en **otra pestaña** y mantener el procesamiento activo en la original. En la pestaña de recuperación:
@@ -65,7 +87,7 @@ Las actas, resultados y AHK pueden contener información personal. **No expongas
 ```bash
 cd ~/homcloud
 git pull --ff-only origin main
-.venv/bin/python -m unittest test_pdf_enlaces test_configuracion_global test_operativa_compartida test_recuperacion_lotes test_integridad_app -v
+.venv/bin/python -m unittest test_configuracion_tabla test_pdf_enlaces test_configuracion_global test_operativa_compartida test_recuperacion_lotes test_integridad_app -v
 bash ./run_cloudshell.sh
 ```
 
