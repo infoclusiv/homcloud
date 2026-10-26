@@ -1810,6 +1810,7 @@ def ejecutar_lote_streamlit(
     Sirve tanto para el primer procesamiento como para los reintentos.
     """
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + os.urandom(5).hex()
+    st.session_state["_run_actual_id"] = run_id
     run_uploads_dir = UPLOADS_DIR / run_id
     run_outputs_dir = RUNS_DIR / run_id
 
@@ -2327,6 +2328,7 @@ def ejecutar_lote_streamlit(
     }
 
     st.session_state["ultimo_lote"] = resultado_lote
+    st.session_state.pop("_run_actual_id", None)
 
     # Un timeout externo puede dejar un worker activo; conservar la marca
     # hasta que el operador confirme que ya no existen procesos asociados.
@@ -3209,6 +3211,7 @@ with st.expander(
             except (ValueError, OSError, UnicodeError) as exc:
                 st.error(f"No se pudo recuperar el lote: {exc}")
             else:
+                st.session_state.pop("_run_actual_id", None)
                 st.session_state["ultimo_lote"] = recuperado
                 reiniciar_app_streamlit()
     else:
