@@ -20,9 +20,9 @@ Abre homcloud y, desde el menú lateral, entra a **Recuperar resultados**. Puede
 2. Selecciona el lote más reciente (o uno anterior).
 3. Descarga **CSV recuperado** o **ZIP de AHK recuperados** en cualquier momento.
 
-La página reconstruye las filas en memoria, combinando reintentos con resultados previos. Si falta un resultado pero el PDF original sigue en `uploads/<run_id>/`, se marca `Error no iniciado` para poder reintentar. No requiere que el procesamiento finalice. Las descargas se hacen a través de widgets de Streamlit: **ya no se crean nuevos archivos en `static/exports` ni nuevas copias de PDFs en `static/pdfs`**.
+La página reconstruye las filas en memoria, combinando reintentos con resultados previos. Si falta un resultado pero el PDF original sigue en `uploads/<run_id>/`, se marca `Error no iniciado` para poder reintentar. No requiere que el procesamiento finalice. Las descargas del CSV y ZIP se hacen mediante widgets de Streamlit, sin crear copias nuevas en `static/exports`. Los originales PDF vuelven a poder abrirse haciendo clic en el nombre del archivo de la tabla.
 
-Los PDF originales se descargan desde un selector en las tablas finales. Los nombres de archivo dejaron de ser enlaces directos al servidor estático para evitar exponer documentos personales con URLs reutilizables. Los enlaces estáticos antiguos dejan de funcionar porque `enableStaticServing=false`. Las copias antiguas siguen en disco hasta eliminarlas mediante limpieza manual confirmada.
+**Columna Archivo:** los nombres vuelven a ser enlaces clicables (`LinkColumn`) que abren el PDF original en otra pestaña. El visor estático queda habilitado exclusivamente para recuperar el comportamiento anterior. Cada PDF se publica en `static/pdfs/<token>/<nombre>.pdf` bajo una URL generada con HMAC y un secreto exclusivo del Cloud Shell (`settings/.pdf_link_secret`, ignorado por Git). En el mismo sistema de archivos se crea un **hard link**: las dos rutas apuntan a los mismos bytes, sin duplicarlos. Si el filesystem no admite enlaces físicos se utiliza una copia alternativa. No compartir enlaces ni exponer públicamente Web Preview: **la URL no tiene autenticación propia**. Las publicaciones antiguas pueden limpiarse manualmente por la política de retención.
 
 **Limitaciones:** si termina el proceso del servidor o se apaga Cloud Shell, las descargas no estarán disponibles hasta volver a iniciar la aplicación. Esta página lee discos **locales**, no los de la otra cuenta. Si se dañó el disco o se borraron archivos, esta función no los puede reconstruir. Los resultados parciales se guardan después de cada PDF finalizado; una interrupción antes del primer resultado deja disponibles solo los PDFs originales para reintentar.
 
@@ -34,9 +34,9 @@ Un ZIP recuperado puede combinar scripts AHK guardados en varios lotes padres; e
 
 ## Persistencia y ahorro de espacio
 
-- El primer procesamiento conserva una copia del PDF original en `uploads/<run_id>/` para permitir reintentos.
+- El primer procesamiento conserva el PDF original en `uploads/<run_id>/` para permitir reintentos, abrirlo desde la tabla y reconstruir lotes interrumpidos.
 - Al reintentar, cuando es posible se crea un **hard link** al mismo PDF original en vez de duplicar sus bytes. El worker no sobrescribe ese archivo compartido. Si no se puede crear el hard link, se conserva la alternativa de guardar el PDF normalmente.
-- CSV y ZIP de cada lote se escriben a un archivo temporal y luego se sustituyen atómicamente, de modo que otras pestañas no descarguen un archivo a medio escribir.
+- La vista de PDFs en `static/pdfs/` reutiliza archivos mediante hard links cuando es posible; abrir varias veces el mismo PDF no genera nuevas copias físicas.\n- CSV y ZIP de cada lote se escriben a un archivo temporal y luego se sustituyen atómicamente, de modo que otras pestañas no descarguen un archivo a medio escribir.
 - El inventario cuenta los hard links una sola vez para estimar el espacio físico ocupado.
 - El inventario y el escaneo de carpetas no se ejecutan en cada actualización de Streamlit: pulsa **Analizar almacenamiento ahora** cuando lo necesites.
 
@@ -58,18 +58,18 @@ du -sh ~/homcloud/uploads ~/homcloud/outputs ~/homcloud/static 2>/dev/null
 
 ## Seguridad
 
-Las actas, resultados y AHK pueden contener información personal. **No expongas la vista previa de Cloud Shell a usuarios no autorizados.** Streamlit no es, por sí mismo, un sistema de autenticación para documentos. Ya no se publica material nuevo bajo `static/`; si existen copias antiguas en disco, pueden eliminarse solo después de contar con respaldos. No guardes credenciales, claves API ni PDFs en Git o Firestore de preferencias.
+Las actas, resultados y AHK pueden contener información personal. **No expongas la vista previa de Cloud Shell a usuarios no autorizados.** Streamlit no es, por sí mismo, un sistema de autenticación para documentos. Los enlaces a PDF se publican nuevamente bajo `static/pdfs/` para permitir abrir el documento en otra pestaña; cualquier persona con su URL puede acceder mientras siga publicada. No constituyen enlaces autenticados. Se emplean identificadores difíciles de adivinar y un secreto local de 32 bytes, pero **la seguridad depende de no difundir las URLs y de restringir el acceso a Web Preview**. Limpia las publicaciones antiguas desde la interfaz cuando ya no sean necesarias. No guardes credenciales, claves API ni PDFs en Git o Firestore de preferencias.
 
 ## Despliegue y pruebas en ambas cuentas
 
 ```bash
 cd ~/homcloud
 git pull --ff-only origin main
-.venv/bin/python -m unittest test_configuracion_global test_operativa_compartida test_recuperacion_lotes test_integridad_app -v
+.venv/bin/python -m unittest test_pdf_enlaces test_configuracion_global test_operativa_compartida test_recuperacion_lotes test_integridad_app -v
 bash ./run_cloudshell.sh
 ```
 
-Realiza una prueba manual con 3 PDFs en una pestaña y abre **Recuperar resultados** en otra. Tras el primer PDF completado, confirma que se puede descargar su CSV y AHK sin esperar a los otros. Prueba a recuperar un lote interrumpido y reintentar exclusivamente los errores. Verifica que no se crearon archivos nuevos en `static/pdfs` ni `static/exports`.
+Realiza una prueba manual con 3 PDFs en una pestaña y abre **Recuperar resultados** en otra. Tras el primer PDF completado, confirma que se puede descargar su CSV y AHK sin esperar a los otros. Prueba a recuperar un lote interrumpido y reintentar exclusivamente los errores. Verifica que el enlace del nombre del archivo abre el PDF original en una nueva pestaña y que las publicaciones nuevas en `static/pdfs` son enlaces físicos al PDF de `uploads` (cuando el sistema lo permite). `static/exports` permanece sin nuevas copias.
 
 ## Sincronización compartida de prompts, modelo y timeouts
 
