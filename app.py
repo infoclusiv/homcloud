@@ -328,12 +328,14 @@ _APP_SOURCE = _APP_SOURCE.replace(
     1,
 )
 
-_OLD_OPERATIONAL_CONFIG_MARKER = '''timeouts_persistidos = cargar_timeouts_persistentes()
+_OLD_OPERATIONAL_CONFIG_MARKER = '''timeouts_locales = cargar_timeouts_persistentes()
+timeouts_persistidos = _seleccionar_global("timeouts", timeouts_locales)
 
 with st.container():
 '''
 
-_NEW_OPERATIONAL_CONFIG_BLOCK = '''timeouts_persistidos = cargar_timeouts_persistentes()
+_NEW_OPERATIONAL_CONFIG_BLOCK = '''timeouts_locales = cargar_timeouts_persistentes()
+timeouts_persistidos = _seleccionar_global("timeouts", timeouts_locales)
 try:
     preferencias_operativas, revision_operativa, proyecto_operativo = leer_preferencias()
     error_operativa = None
