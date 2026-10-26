@@ -55,3 +55,6 @@ settings/operacion_global.json
 
 # Private per-Cloud-Shell opt-outs; never synchronize or commit
 settings/excepciones_cloudshell.json
+
+# Secret key used to make the PDF browser URLs unguessable
+settings/.pdf_link_secret
