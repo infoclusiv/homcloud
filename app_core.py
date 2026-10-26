@@ -1185,12 +1185,14 @@ def crear_zip_ahk(run_outputs_dir: Path, filas: list | None = None):
 
     zip_path = run_outputs_dir / "scripts_ahk.zip"
 
-    if zip_path.exists():
-        zip_path.unlink()
-
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-        for ahk_file in ahk_files:
-            zipf.write(ahk_file, arcname=ahk_file.name)
+    temporal = zip_path.with_name(zip_path.name + ".tmp")
+    try:
+        with zipfile.ZipFile(temporal, "w", zipfile.ZIP_DEFLATED) as zipf:
+            for ahk_file in ahk_files:
+                zipf.write(ahk_file, arcname=ahk_file.name)
+        os.replace(temporal, zip_path)
+    finally:
+        temporal.unlink(missing_ok=True)
 
     return zip_path, ahk_files
 
@@ -1740,26 +1742,6 @@ def crear_fila_error_timeout_lote(
     }
 
 
-def publicar_descargas_parciales(run_outputs_dir: Path, run_id: str) -> None:
-    """Publica snapshots legibles durante el lote con escritura atómica.
-
-    Los nombres contienen un token del lote; se deben tratar como archivos
-    temporales sensibles y purgar mediante la política de retención.
-    """
-    destino = BASE_DIR / "static" / "exports" / run_id
-    destino.mkdir(parents=True, exist_ok=True)
-    for nombre_origen, nombre_publicado in (
-        ("resumen_resultados_parcial.csv", "resultados_parciales.csv"),
-        ("scripts_ahk.zip", "scripts_parciales.zip"),
-    ):
-        origen = run_outputs_dir / nombre_origen
-        if not origen.is_file():
-            continue
-        temporal = destino / (nombre_publicado + ".tmp")
-        shutil.copyfile(origen, temporal)
-        os.replace(temporal, destino / nombre_publicado)
-
-
 def guardar_artifactos_parciales_lote(run_outputs_dir: Path, filas_por_indice: dict[int, dict]) -> None:
     """
     Guarda resultados parciales para no perder los PDF ya completados si otro PDF
@@ -1784,7 +1766,6 @@ def guardar_artifactos_parciales_lote(run_outputs_dir: Path, filas_por_indice: d
             guardar_csv_resumen(errores_parcial_path, filas_error)
 
         crear_zip_ahk(run_outputs_dir, filas_parciales)
-        publicar_descargas_parciales(run_outputs_dir, run_outputs_dir.name)
     except Exception:
         pass
 
@@ -1859,12 +1840,16 @@ def ejecutar_lote_streamlit(
     })
 
     st.info(f"📁 Carpeta de salida del lote: `{run_outputs_dir}`")
-    st.markdown(
-        "⬇️ **Descargas durante el procesamiento:** "
-        f"[CSV de resultados parciales](app/static/exports/{run_id}/resultados_parciales.csv) · "
-        f"[ZIP de AHK terminados](app/static/exports/{run_id}/scripts_parciales.zip) "
-        "(los enlaces comienzan a funcionar tras completarse el primer archivo; "
-        "puedes abrirlos en otra pestaña y descargarlos sin detener el procesamiento)."
+    st.info(
+        "Para descargar CSV y ZIP mientras se procesa, abre la página "
+        "'Recuperar resultados' en OTRA pestaña del navegador. "
+        "Desde esa pestaña pulsa 'Actualizar archivos disponibles'. "
+        "No es necesario esperar al último PDF."
+    )
+    st.page_link(
+        "pages/02_Recuperar_resultados.py",
+        label="📦 Abrir centro de recuperación y descargas",
+        icon="📦",
     )
 
     progress = st.progress(0)
