@@ -65,3 +65,7 @@ de `.streamlit/config.toml`. Fuera de la vista previa autenticada de
 Google Cloud Shell, conserva activadas las protecciones CORS y XSRF.
 
 Referencia: https://docs.cloud.google.com/shell/docs/using-web-preview
+
+## Configuración operativa global
+
+Para compartir los prompts de Pregrado/Posgrado, modelo OpenCode, timeouts, concurrencia y retención, consulta [PREFERENCIAS_Y_RETENCION.md](PREFERENCIAS_Y_RETENCION.md). La publicación inicial de prompts/modelo/timeouts es manual; los archivos locales no se sobrescriben, y cada cuenta puede mantener excepciones locales. Ejecuta `python -m unittest test_configuracion_global test_operativa_compartida test_recuperacion_lotes test_integridad_app -v` tras actualizar el repositorio.
