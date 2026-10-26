@@ -1766,7 +1766,7 @@ def crear_fila_error_timeout_lote(
     }
 
 
-def guardar_artifactos_parciales_lote(run_outputs_dir: Path, filas_por_indice: dict[int, dict]) -> None:
+def guardar_artifactos_parciales_lote(run_outputs_dir: Path, filas_por_indice: dict[int, dict]) -> str | None:
     """
     Guarda resultados parciales para no perder los PDF ya completados si otro PDF
     queda trabado o si la sesión se interrumpe durante un lote grande.
@@ -1778,7 +1778,7 @@ def guardar_artifactos_parciales_lote(run_outputs_dir: Path, filas_por_indice: d
         ]
 
         if not filas_parciales:
-            return
+            return None
 
         parcial_csv_path = run_outputs_dir / "resumen_resultados_parcial.csv"
         guardar_csv_resumen(parcial_csv_path, filas_parciales)
@@ -1790,8 +1790,9 @@ def guardar_artifactos_parciales_lote(run_outputs_dir: Path, filas_por_indice: d
             guardar_csv_resumen(errores_parcial_path, filas_error)
 
         crear_zip_ahk(run_outputs_dir, filas_parciales)
-    except Exception:
-        pass
+        return None
+    except Exception as exc:
+        return f"{type(exc).__name__}: {exc}"
 
 
 def ejecutar_lote_streamlit(
@@ -1910,6 +1911,17 @@ def ejecutar_lote_streamlit(
     estado_por_indice = {}
     inicio_real_por_indice = {}
     indices_cerrados = set()
+
+    errores_de_guardado_mostrados = set()
+
+    def registrar_snapshot_o_advertir():
+        fallo = guardar_artifactos_parciales_lote(run_outputs_dir, filas_por_indice)
+        if fallo and fallo not in errores_de_guardado_mostrados:
+            errores_de_guardado_mostrados.add(fallo)
+            st.error(
+                f"No fue posible guardar resultados parciales: {fallo}. "
+                "Verifica el espacio disponible y las carpetas de este Cloud Shell."
+            )
 
     for index, job in enumerate(pdf_jobs, start=1):
         estado_por_indice[index] = {
@@ -2121,7 +2133,7 @@ def ejecutar_lote_streamlit(
                     "Error": fila.get("Error", ""),
                 })
 
-                guardar_artifactos_parciales_lote(run_outputs_dir, filas_por_indice)
+                registrar_snapshot_o_advertir()
 
             # Solo se envían nuevos trabajos cuando un worker terminó realmente.
             # Si un worker se marcó por timeout, no asumimos que el hilo quedó libre.
@@ -2179,7 +2191,7 @@ def ejecutar_lote_streamlit(
                     "Error": fila_timeout.get("Error", ""),
                 })
 
-                guardar_artifactos_parciales_lote(run_outputs_dir, filas_por_indice)
+                registrar_snapshot_o_advertir()
 
             renderizar_estado()
 
@@ -2215,7 +2227,7 @@ def ejecutar_lote_streamlit(
                 })
 
             pendientes.clear()
-            guardar_artifactos_parciales_lote(run_outputs_dir, filas_por_indice)
+            registrar_snapshot_o_advertir()
             renderizar_estado()
 
     finally:
