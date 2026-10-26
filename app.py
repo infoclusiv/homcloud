@@ -19,6 +19,7 @@ from programas_planes_sync import (
     proyecto_configurado,
 )
 from excel_runtime_patch import aplicar_soporte_excel
+from configuracion_global import leer_preferencias, guardar_preferencias
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -365,6 +366,12 @@ with st.container():
 
 _NEW_OPERATIONAL_CONFIG_BLOCK = '''timeouts_persistidos = cargar_timeouts_persistentes()
 try:
+    preferencias_operativas, revision_operativa, proyecto_operativo = leer_preferencias()
+    error_operativa = None
+except (ErrorSincronizacion, ValueError) as exc:
+    preferencias_operativas, revision_operativa, proyecto_operativo = {"procesos_predeterminados": 4}, None, None
+    error_operativa = str(exc)
+try:
     programas_planes_guardados, revision_planes, proyecto_planes = leer_configuracion(PROGRAMAS_PLANES_PATH)
     error_sync_planes = None
 except ErrorSincronizacion as exc:
@@ -391,15 +398,39 @@ with st.container():
 
     with col_parallel:
         max_workers_limite_ui = 1
+        if "_revision_preferencias_operativas" not in st.session_state:
+            st.session_state["_revision_preferencias_operativas"] = revision_operativa
+        if "max_workers_opencode_ui_base" not in st.session_state:
+            st.session_state["max_workers_opencode_ui_base"] = int(preferencias_operativas["procesos_predeterminados"])
         max_workers_opencode = st.slider(
             "Procesos simultáneos",
             min_value=1,
             max_value=20,
-            value=12,
             step=1,
             key="max_workers_opencode_ui_base",
-            help="Valor inicial: 12. Máximo habilitado: 20. El valor se limita automáticamente al número de archivos cargados.",
+            help="La selección actual es para este lote; puedes guardarla como predeterminada para ambas instancias.",
+            disabled=bool(error_operativa),
         )
+        if error_operativa:
+            st.error(f"Preferencias compartidas no disponibles: {error_operativa}")
+        else:
+            st.caption(f"Predeterminado: {preferencias_operativas['procesos_predeterminados']} · {'Firestore compartido' if proyecto_operativo else 'Modo local'}")
+            if st.session_state["_revision_preferencias_operativas"] != revision_operativa:
+                st.warning("Las preferencias cambiaron en otra sesión. Recarga antes de guardar.")
+            if st.button("💾 Guardar predeterminado global", key="guardar_concurrencia_global",
+                         disabled=st.session_state["_revision_preferencias_operativas"] != revision_operativa):
+                try:
+                    guardar_preferencias({"procesos_predeterminados": max_workers_opencode}, revision_operativa)
+                except (ValueError, ErrorSincronizacion) as exc:
+                    st.error(str(exc))
+                else:
+                    st.session_state.pop("_revision_preferencias_operativas", None)
+                    st.success("Valor predeterminado compartido guardado.")
+                    reiniciar_app_streamlit()
+            if st.button("🔄 Recargar predeterminado", key="recargar_concurrencia_global"):
+                st.session_state["max_workers_opencode_ui_base"] = int(preferencias_operativas["procesos_predeterminados"])
+                st.session_state["_revision_preferencias_operativas"] = revision_operativa
+                reiniciar_app_streamlit()
         if max_workers_opencode > 12:
             st.warning(
                 "Alta concurrencia activa (13–20 procesos). Puede aumentar de forma importante "
@@ -617,6 +648,10 @@ _APP_SOURCE = _APP_SOURCE.replace(
     _NEW_ERROR_TABLE_LINE,
 )
 
+_APP_SOURCE = _APP_SOURCE.replace(
+    'with st.expander("Ver detalle del último procesamiento", expanded=False):',
+    'with st.expander("Ver detalle del último procesamiento", expanded=True):',
+)
 _APP_SOURCE = aplicar_soporte_excel(_APP_SOURCE)
 
 exec(compile(_APP_SOURCE, str(_APP_CORE_PATH), "exec"), globals(), globals())
