@@ -1891,10 +1891,10 @@ def ejecutar_lote_streamlit(
         "Desde esa pestaña pulsa 'Actualizar archivos disponibles'. "
         "No es necesario esperar al último PDF."
     )
-    st.page_link(
-        "pages/02_Recuperar_resultados.py",
-        label="📦 Abrir centro de recuperación y descargas",
-        icon="📦",
+    st.caption(
+        "En la barra lateral, abre 'Recuperar resultados' con clic derecho "
+        "y 'Abrir enlace en una pestaña nueva'. No navegues fuera de la pestaña "
+        "que sigue procesando archivos."
     )
 
     progress = st.progress(0)
