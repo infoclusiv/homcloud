@@ -1740,6 +1740,26 @@ def crear_fila_error_timeout_lote(
     }
 
 
+def publicar_descargas_parciales(run_outputs_dir: Path, run_id: str) -> None:
+    """Publica snapshots legibles durante el lote con escritura atómica.
+
+    Los nombres contienen un token del lote; se deben tratar como archivos
+    temporales sensibles y purgar mediante la política de retención.
+    """
+    destino = BASE_DIR / "static" / "exports" / run_id
+    destino.mkdir(parents=True, exist_ok=True)
+    for nombre_origen, nombre_publicado in (
+        ("resumen_resultados_parcial.csv", "resultados_parciales.csv"),
+        ("scripts_ahk.zip", "scripts_parciales.zip"),
+    ):
+        origen = run_outputs_dir / nombre_origen
+        if not origen.is_file():
+            continue
+        temporal = destino / (nombre_publicado + ".tmp")
+        shutil.copyfile(origen, temporal)
+        os.replace(temporal, destino / nombre_publicado)
+
+
 def guardar_artifactos_parciales_lote(run_outputs_dir: Path, filas_por_indice: dict[int, dict]) -> None:
     """
     Guarda resultados parciales para no perder los PDF ya completados si otro PDF
@@ -1764,6 +1784,7 @@ def guardar_artifactos_parciales_lote(run_outputs_dir: Path, filas_por_indice: d
             guardar_csv_resumen(errores_parcial_path, filas_error)
 
         crear_zip_ahk(run_outputs_dir, filas_parciales)
+        publicar_descargas_parciales(run_outputs_dir, run_outputs_dir.name)
     except Exception:
         pass
 
@@ -1783,7 +1804,7 @@ def ejecutar_lote_streamlit(
     Ejecuta un lote completo y renderiza progreso en Streamlit.
     Sirve tanto para el primer procesamiento como para los reintentos.
     """
-    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + os.urandom(5).hex()
     run_uploads_dir = UPLOADS_DIR / run_id
     run_outputs_dir = RUNS_DIR / run_id
 
@@ -1838,6 +1859,13 @@ def ejecutar_lote_streamlit(
     })
 
     st.info(f"📁 Carpeta de salida del lote: `{run_outputs_dir}`")
+    st.markdown(
+        "⬇️ **Descargas durante el procesamiento:** "
+        f"[CSV de resultados parciales](app/static/exports/{run_id}/resultados_parciales.csv) · "
+        f"[ZIP de AHK terminados](app/static/exports/{run_id}/scripts_parciales.zip) "
+        "(los enlaces comienzan a funcionar tras completarse el primer archivo; "
+        "puedes abrirlos en otra pestaña y descargarlos sin detener el procesamiento)."
+    )
 
     progress = st.progress(0)
     fase_progress = st.progress(0)
@@ -3123,6 +3151,34 @@ if 'reintentar_click' in locals() and reintentar_click:
             lote_ejecutado_en_esta_corrida = True
         else:
             st.warning("No hay PDFs disponibles para reintentar.")
+
+# Recuperación local tras cierre del navegador o reinicio de Streamlit.
+# No sustituye ni modifica el lote activo en la memoria del usuario.
+if not st.session_state.get("ultimo_lote"):
+    lotes_recuperables = sorted(
+        (p for p in RUNS_DIR.iterdir() if p.is_dir() and (p / "resumen_resultados_parcial.csv").is_file()),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if lotes_recuperables:
+        ultimo_recuperable = lotes_recuperables[0]
+        st.info(f"Hay resultados parciales recuperables del lote {ultimo_recuperable.name}.")
+        if st.button("♻️ Recuperar resultados parciales", key="recuperar_ultimo_parcial"):
+            with (ultimo_recuperable / "resumen_resultados_parcial.csv").open("r", encoding="utf-8-sig", newline="") as f:
+                filas_recuperadas = list(csv.DictReader(f))
+            zip_parcial = ultimo_recuperable / "scripts_ahk.zip"
+            csv_parcial = ultimo_recuperable / "resumen_resultados_parcial.csv"
+            st.session_state["ultimo_lote"] = {
+                "run_id": ultimo_recuperable.name,
+                "run_outputs_dir": str(ultimo_recuperable),
+                "run_uploads_dir": str(UPLOADS_DIR / ultimo_recuperable.name),
+                "filas": filas_recuperadas,
+                "filas_error": obtener_filas_con_error(filas_recuperadas),
+                "resumen_csv_path": str(csv_parcial),
+                "zip_ahk_path": str(zip_parcial) if zip_parcial.is_file() else "",
+                "es_resultado_combinado": False,
+            }
+            reiniciar_app_streamlit()
 
 if st.session_state.get("ultimo_lote") and not lote_ejecutado_en_esta_corrida:
     st.divider()
