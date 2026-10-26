@@ -2733,6 +2733,14 @@ except ValueError as exc:
     excepciones_cuenta = {tipo: False for tipo in TIPOS_GLOBALES}
     errores_globales["excepciones_locales"] = str(exc)
 
+def _ajustes_globales_obsoletos():
+    return [
+        tipo for tipo in TIPOS_GLOBALES
+        if bloques_globales.get(tipo) is not None
+        and not excepciones_cuenta.get(tipo, False)
+        and st.session_state.get(f"_revision_global_vista_{tipo}") != revisiones_globales[tipo]
+    ]
+
 def _seleccionar_global(tipo, local):
     if bloques_globales.get(tipo) is not None and not excepciones_cuenta[tipo]:
         return bloques_globales[tipo].copy()
@@ -3232,7 +3240,7 @@ with st.container():
 
             reintentar_click = st.button(
                 f"🔁 Reintentar {len(filas_error_panel)} PDF(s) con error",
-                disabled=not api_keys or not opencode_path,
+                disabled=not api_keys or not opencode_path or bool(errores_globales) or bool(_ajustes_globales_obsoletos()),
                 use_container_width=True,
                 key=f"boton_reintentar_panel_{(ultimo_lote or {}).get('run_id','sin_run')}",
             )
@@ -3320,7 +3328,7 @@ if filas_error_destacadas:
     with col_retry_action:
         reintentar_click_destacado = st.button(
             f"🔁 Reintentar ahora {len(filas_error_destacadas)} PDF(s) con error",
-            disabled=not api_keys or not opencode_path,
+            disabled=not api_keys or not opencode_path or bool(errores_globales) or bool(_ajustes_globales_obsoletos()),
             use_container_width=True,
             type="primary",
             key=f"boton_reintentar_destacado_{run_id_reintento_destacado}",
