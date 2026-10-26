@@ -32,63 +32,44 @@ COLOR_PLAN_CORRECTO = "rgb(0, 204, 47)"
 COLOR_PLAN_INCORRECTO = "rgb(255, 124, 28)"
 
 
-def _resolver_pdf_original(nombre_archivo: str) -> Path | None:
-    """Localiza la copia original del PDF guardada en uploads/<run_id>/.
+PDF_DOWNLOAD_WIDGET_COUNTER = 0
 
-    Primero intenta las rutas del último lote guardado y después recorre los
-    lotes existentes del más reciente al más antiguo. Este fallback también
-    permite crear enlaces en el primer render del resumen, antes de que
-    `ultimo_lote` haya sido escrito en session_state.
+
+def _resolver_pdf_original(nombre_archivo: str) -> Path | None:
+    """Busca el PDF solo en el lote actual y su cadena de reintentos.
+
+    Nunca recorre lotes ajenos por nombre: dos PDFs de distintas personas
+    podrían compartir el mismo nombre de archivo.
     """
+    from recuperacion_lotes import leer_json, validar_run_id
+
     nombre = Path(str(nombre_archivo or "")).name.strip()
     if not nombre:
         return None
-
-    ultimo_lote = st.session_state.get("ultimo_lote") or {}
-    directorios_candidatos = []
-
-    run_uploads_dir = ultimo_lote.get("run_uploads_dir")
-    if run_uploads_dir:
-        directorios_candidatos.append(Path(run_uploads_dir))
-
-    for clave_run in ("run_id", "parent_run_id"):
-        run_id = str(ultimo_lote.get(clave_run) or "").strip()
-        if run_id:
-            directorios_candidatos.append(UPLOADS_DIR_APP / run_id)
-
+    ultimo = st.session_state.get("ultimo_lote") or {}
+    ids = [
+        st.session_state.get("_run_actual_id"),
+        ultimo.get("run_id"),
+        ultimo.get("parent_run_id"),
+    ]
     vistos = set()
-    for directorio in directorios_candidatos:
-        clave = str(directorio)
-        if clave in vistos:
+    while ids and len(vistos) < 12:
+        run_id = str(ids.pop(0) or "")
+        if not run_id or run_id in vistos:
             continue
-        vistos.add(clave)
-        candidato = directorio / nombre
-        if candidato.exists() and candidato.is_file():
+        try:
+            validar_run_id(run_id)
+        except ValueError:
+            continue
+        vistos.add(run_id)
+        candidato = UPLOADS_DIR_APP / run_id / nombre
+        if candidato.is_file() and not candidato.is_symlink():
             return candidato
-
-    if not UPLOADS_DIR_APP.exists():
-        return None
-
-    coincidencias = []
-    try:
-        for run_dir in UPLOADS_DIR_APP.iterdir():
-            if not run_dir.is_dir():
-                continue
-            candidato = run_dir / nombre
-            if candidato.exists() and candidato.is_file():
-                try:
-                    orden = candidato.stat().st_mtime_ns
-                except OSError:
-                    orden = 0
-                coincidencias.append((orden, candidato))
-    except OSError:
-        return None
-
-    if not coincidencias:
-        return None
-
-    coincidencias.sort(key=lambda item: item[0], reverse=True)
-    return coincidencias[0][1]
+        metadata = leer_json(BASE_DIR / "outputs" / "runs" / run_id / "metadata_lote.json")
+        anterior = str(metadata.get("parent_run_id") or "").strip()
+        if anterior and anterior not in vistos:
+            ids.append(anterior)
+    return None
 
 
 def preparar_dataframe_con_links_pdf(filas):
@@ -103,6 +84,9 @@ def preparar_dataframe_con_links_pdf(filas):
 
 def mostrar_descarga_pdf_original(filas, sufijo: str) -> None:
     """Descarga bajo la sesión Streamlit: evita copias en static/pdfs."""
+    global PDF_DOWNLOAD_WIDGET_COUNTER
+    PDF_DOWNLOAD_WIDGET_COUNTER += 1
+    clave = f"{sufijo}_{PDF_DOWNLOAD_WIDGET_COUNTER}"
     nombres = list(dict.fromkeys(
         str(fila.get("Archivo") or "").strip()
         for fila in (filas or [])
@@ -117,7 +101,7 @@ def mostrar_descarga_pdf_original(filas, sufijo: str) -> None:
     elegido = st.selectbox(
         "PDF original para descargar",
         options=[nombre for nombre, _ in disponibles],
-        key=f"elegir_pdf_original_{sufijo}",
+        key=f"elegir_pdf_original_{clave}",
     )
     ruta = dict(disponibles)[elegido]
     try:
@@ -127,7 +111,7 @@ def mostrar_descarga_pdf_original(filas, sufijo: str) -> None:
                 data=f,
                 file_name=ruta.name,
                 mime="application/pdf",
-                key=f"descargar_pdf_original_{sufijo}",
+                key=f"descargar_pdf_original_{clave}",
             )
     except OSError as exc:
         st.warning(f"No se pudo abrir el PDF original: {exc}")
