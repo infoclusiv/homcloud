@@ -22,7 +22,7 @@ jobs:
           python-version: '3.11'
       - name: Compile application modules
         run: |
-          python -m compileall -q app.py app_core.py configuracion_global.py recuperacion_lotes.py retencion_local.py pages/02_Recuperar_resultados.py
+          python -m compileall -q app.py app_core.py configuracion_global.py operativa_compartida.py excepciones_cloudshell.py recuperacion_lotes.py retencion_local.py pages/02_Recuperar_resultados.py
       - name: Run pure-Python tests (no credentials or APIs)
         run: |
-          python -m unittest test_configuracion_global test_recuperacion_lotes test_integridad_app -v
+          python -m unittest test_configuracion_global test_operativa_compartida test_recuperacion_lotes test_integridad_app -v
