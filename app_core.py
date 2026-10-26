@@ -1816,6 +1816,12 @@ def ejecutar_lote_streamlit(
     run_uploads_dir.mkdir(parents=True, exist_ok=True)
     run_outputs_dir.mkdir(parents=True, exist_ok=True)
 
+    # Bloquea el borrado accidental por el panel de retención mientras corre.
+    # Si la sesión se interrumpe abruptamente, la marca se conserva para
+    # permitir recuperación y revisión manual del lote.
+    marca_proceso = run_outputs_dir / ".procesamiento_activo"
+    marca_proceso.write_text(str(os.getpid()), encoding="ascii")
+
     prompt_pregrado_path = run_outputs_dir / "prompt_pregrado.txt"
     prompt_posgrado_path = run_outputs_dir / "prompt_posgrado.txt"
     modelo_opencode_path = run_outputs_dir / "modelo_opencode.txt"
@@ -2321,6 +2327,11 @@ def ejecutar_lote_streamlit(
     }
 
     st.session_state["ultimo_lote"] = resultado_lote
+
+    # Un timeout externo puede dejar un worker activo; conservar la marca
+    # hasta que el operador confirme que ya no existen procesos asociados.
+    if not any(f.get("Estado") == "Error timeout lote" for f in filas):
+        marca_proceso.unlink(missing_ok=True)
 
     return resultado_lote
 
