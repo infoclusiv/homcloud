@@ -2736,7 +2736,7 @@ except ValueError as exc:
 def _ajustes_globales_obsoletos():
     return [
         tipo for tipo in TIPOS_GLOBALES
-        if bloques_globales.get(tipo) is not None
+        if proyectos_globales.get(tipo)
         and not excepciones_cuenta.get(tipo, False)
         and st.session_state.get(f"_revision_global_vista_{tipo}") != revisiones_globales[tipo]
     ]
@@ -2824,7 +2824,7 @@ with st.container():
                     st.caption(f"{tipo}: todavía no se ha publicado una versión global.")
                 else:
                     st.caption(f"{tipo}: versión compartida disponible.")
-                if (not excepciones_cuenta.get(tipo)
+                if (proyectos_globales.get(tipo) and not excepciones_cuenta.get(tipo)
                         and st.session_state.get(f"_revision_global_vista_{tipo}") != revisiones_globales[tipo]):
                     st.warning(f"{tipo} cambió desde otra sesión: recarga antes de procesar o publicar.")
             if st.button("🔄 Recargar ajustes desde Firestore", key="recargar_bloques_globales"):
@@ -3148,7 +3148,7 @@ with st.container():
             requisitos_faltantes.append("resolver el error de sincronización de ajustes globales")
         for tipo in TIPOS_GLOBALES:
             if (
-                bloques_globales.get(tipo) is not None
+                proyectos_globales.get(tipo)
                 and not excepciones_cuenta.get(tipo, False)
                 and st.session_state.get(f"_revision_global_vista_{tipo}") != revisiones_globales[tipo]
             ):
