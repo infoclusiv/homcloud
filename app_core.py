@@ -2747,7 +2747,7 @@ def _reiniciar_controles_globales():
     ):
         st.session_state.pop(clave, None)
     for tipo in TIPOS_GLOBALES:
-        st.session_state[f"_revision_global_vista_{tipo}"] = revisiones_globales[tipo]
+        st.session_state.pop(f"_revision_global_vista_{tipo}", None)
     reiniciar_app_streamlit()
 
 local_prompts = {
@@ -3136,6 +3136,15 @@ with st.container():
                 st.caption("Aquí aparecerán los PDFs cargados para revisión rápida.")
 
         requisitos_faltantes = []
+        if errores_globales:
+            requisitos_faltantes.append("resolver el error de sincronización de ajustes globales")
+        for tipo in TIPOS_GLOBALES:
+            if (
+                bloques_globales.get(tipo) is not None
+                and not excepciones_cuenta.get(tipo, False)
+                and st.session_state.get(f"_revision_global_vista_{tipo}") != revisiones_globales[tipo]
+            ):
+                requisitos_faltantes.append(f"recargar {tipo} desde Firestore")
         if not uploaded_files:
             requisitos_faltantes.append("cargar al menos un PDF")
         if not prompt_pregrado.strip():
