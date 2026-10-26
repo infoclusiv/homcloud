@@ -195,8 +195,10 @@ def _configuracion_ancho_resumen(column_config: dict) -> dict:
                 help="Haz clic para abrir el PDF en otra pestaña.",
                 display_text=r"app/static/pdfs/[a-f0-9]+/(.*)",
             )
-        elif columna != "Archivo":
-            config[columna] = st.column_config.TextColumn(
+        elif columna == "Archivo":
+            config["Archivo"] = st.column_config.Column("Archivo", width=ancho)
+        else:
+            config[columna] = st.column_config.Column(
                 columna, width=ancho,
                 help=("El ancho es compacto para mantener Plan a la vista. "
                       "El contenido completo se conserva en el resultado y el CSV."),
