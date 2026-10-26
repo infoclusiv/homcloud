@@ -2941,6 +2941,14 @@ with st.container():
 
         if modelo_opencode:
             st.success(f"Modelo activo: {modelo_opencode}")
+            if (bloques_globales["modelo"] is not None
+                    and not excepciones_cuenta["modelo"]
+                    and modelos_resultado.get("ok")
+                    and modelo_opencode not in modelos_detectados):
+                st.warning(
+                    "El modelo global no figura entre los modelos detectados en este "
+                    "Cloud Shell. Verifica que esté disponible aquí o activa una excepción local."
+                )
         else:
             st.info("Se usará el modelo por defecto de OpenCode.")
         st.caption("Global compartido" if bloques_globales["modelo"] is not None and not excepciones_cuenta["modelo"] else "Configuración local o sesión actual")
@@ -3036,6 +3044,12 @@ with st.container():
 
         timeout_opencode_segundos = int(timeout_opencode_minutos) * 60
         timeout_pdf_segundos = int(timeout_pdf_minutos) * 60
+        if timeout_pdf_segundos <= timeout_opencode_segundos:
+            st.warning(
+                "El timeout total del PDF es igual o menor al timeout de OpenCode. "
+                "La extracción con LLMWhisperer también consume tiempo; considera "
+                "darle más margen al PDF completo."
+            )
 
         if excepciones_cuenta["timeouts"] or bloques_globales["timeouts"] is None:
             if (
