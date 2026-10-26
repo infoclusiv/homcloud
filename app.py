@@ -1,5 +1,4 @@
 from pathlib import Path
-import uuid
 
 import pandas as pd
 import streamlit as st
@@ -28,8 +27,6 @@ _APP_CORE_PATH = Path(__file__).with_name("app_core.py")
 _APP_SOURCE = _APP_CORE_PATH.read_text(encoding="utf-8")
 PROGRAMAS_PLANES_PATH = Path(__file__).with_name("settings") / "programas_planes.json"
 UPLOADS_DIR_APP = BASE_DIR / "uploads"
-STATIC_PDFS_DIR = BASE_DIR / "static" / "pdfs"
-STATIC_PDFS_DIR.mkdir(parents=True, exist_ok=True)
 
 COLOR_PLAN_CORRECTO = "rgb(0, 204, 47)"
 COLOR_PLAN_INCORRECTO = "rgb(255, 124, 28)"
@@ -94,67 +91,46 @@ def _resolver_pdf_original(nombre_archivo: str) -> Path | None:
     return coincidencias[0][1]
 
 
-def _publicar_pdf_para_navegador(pdf_path: Path) -> str:
-    """Copia un PDF a static/pdfs bajo un token aleatorio y devuelve su URL."""
-    try:
-        stat = pdf_path.stat()
-        cache_key = f"{pdf_path.resolve()}::{stat.st_mtime_ns}::{stat.st_size}"
-    except OSError:
-        return ""
-
-    cache = st.session_state.setdefault("_pdf_static_links", {})
-    enlace_cacheado = cache.get(cache_key)
-    if enlace_cacheado:
-        ruta_relativa = enlace_cacheado.removeprefix("app/static/")
-        destino_cacheado = BASE_DIR / "static" / ruta_relativa
-        if destino_cacheado.exists():
-            return enlace_cacheado
-
-    token = uuid.uuid4().hex
-    nombre_publico = pdf_path.name.replace("#", "").replace("%", "") or "documento.pdf"
-    destino_dir = STATIC_PDFS_DIR / token
-    destino_dir.mkdir(parents=True, exist_ok=True)
-    destino = destino_dir / nombre_publico
-
-    try:
-        destino.write_bytes(pdf_path.read_bytes())
-    except OSError:
-        return ""
-
-    enlace = f"app/static/pdfs/{token}/{nombre_publico}"
-    cache[cache_key] = enlace
-    return enlace
-
-
 def preparar_dataframe_con_links_pdf(filas):
-    """Convierte la columna Archivo en enlaces sin modificar las filas originales."""
+    """Conserva los nombres de PDFs sin publicarlos como archivos estáticos.
+
+    La descarga del original se gestiona con controles Streamlit; las tablas
+    pueden conservar sus estilos de validación de planes.
+    """
     dataframe = pd.DataFrame(filas).copy()
-    column_config = {}
+    return dataframe, {}
 
-    if dataframe.empty or "Archivo" not in dataframe.columns:
-        return dataframe, column_config
 
-    enlaces = []
-    for nombre_archivo in dataframe["Archivo"].tolist():
-        pdf_path = _resolver_pdf_original(nombre_archivo)
-        if not pdf_path:
-            enlaces.append("")
-            continue
-        enlaces.append(_publicar_pdf_para_navegador(pdf_path))
-
-    # Si falta algún PDF, preservamos la tabla como texto en lugar de dejar una
-    # mezcla de enlaces válidos y rutas relativas inválidas.
-    if not enlaces or not all(enlaces):
-        return dataframe, column_config
-
-    dataframe["Archivo"] = enlaces
-    column_config["Archivo"] = st.column_config.LinkColumn(
-        "Archivo",
-        width="large",
-        help="Haz clic en el nombre para abrir el PDF.",
-        display_text=r"app/static/pdfs/[a-f0-9]+/(.*)",
+def mostrar_descarga_pdf_original(filas, sufijo: str) -> None:
+    """Descarga bajo la sesión Streamlit: evita copias en static/pdfs."""
+    nombres = list(dict.fromkeys(
+        str(fila.get("Archivo") or "").strip()
+        for fila in (filas or [])
+        if str(fila.get("Archivo") or "").strip()
+    ))
+    disponibles = [(nombre, _resolver_pdf_original(nombre)) for nombre in nombres]
+    disponibles = [(nombre, ruta) for nombre, ruta in disponibles if ruta]
+    if not disponibles:
+        st.caption("Los PDFs originales ya no están disponibles en este Cloud Shell.")
+        return
+    st.caption("Para proteger los documentos, los PDFs originales ya no se exponen mediante enlaces estáticos.")
+    elegido = st.selectbox(
+        "PDF original para descargar",
+        options=[nombre for nombre, _ in disponibles],
+        key=f"elegir_pdf_original_{sufijo}",
     )
-    return dataframe, column_config
+    ruta = dict(disponibles)[elegido]
+    try:
+        with ruta.open("rb") as f:
+            st.download_button(
+                "⬇️ Descargar PDF original seleccionado",
+                data=f,
+                file_name=ruta.name,
+                mime="application/pdf",
+                key=f"descargar_pdf_original_{sufijo}",
+            )
+    except OSError as exc:
+        st.warning(f"No se pudo abrir el PDF original: {exc}")
 
 
 def estilizar_tabla_planes(filas, configuracion):
@@ -235,6 +211,7 @@ def renderizar_tabla_resumen_planes(filas) -> None:
         hide_index=True,
         column_config=column_config,
     )
+    mostrar_descarga_pdf_original(filas, "resumen")
 
 
 def renderizar_tabla_errores_con_links(filas) -> None:
@@ -245,6 +222,7 @@ def renderizar_tabla_errores_con_links(filas) -> None:
         hide_index=True,
         column_config=column_config,
     )
+    mostrar_descarga_pdf_original(filas, "errores")
 
 
 _OLD_COMPLETION_BLOCK = '''    lote_ejecutado_en_esta_corrida = True
