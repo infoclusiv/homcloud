@@ -1,141 +1,91 @@
-"""Panel independiente para descargar resultados sin esperar el final del lote.
-
-Abre esta página en otra pestaña de Web Preview mientras procesas. Streamlit
-sirve los archivos mediante widgets de descarga, sin copiarlos a /static/.
-"""
+"""Descargas y recuperación independientes del procesamiento principal."""
 from __future__ import annotations
 
-import csv
-from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
 
-BASE_DIR = Path(__file__).resolve().parents[1]
-RUNS_DIR = BASE_DIR / "outputs" / "runs"
-UPLOADS_DIR = BASE_DIR / "uploads"
+from recuperacion_lotes import (
+    csv_recuperado_bytes,
+    listar_lotes,
+    recuperar_lote,
+    zip_recuperado_bytes,
+)
 
-st.set_page_config(page_title="Recuperación de lotes", layout="wide")
+BASE_DIR = Path(__file__).resolve().parents[1]
+st.set_page_config(page_title="Recuperar resultados", layout="wide")
 st.title("📦 Recuperar resultados de procesamiento")
 st.caption(
-    "Esta página funciona en una pestaña independiente del procesamiento. "
-    "Puedes actualizarla y descargar los documentos terminados aunque otro PDF siga ejecutándose. "
-    "Los archivos permanecen en el Cloud Shell donde se procesaron."
+    "Abre esta página en otra pestaña mientras se procesan los PDFs. "
+    "Pulsa Actualizar para ver nuevos documentos terminados. "
+    "Los resultados se leen del disco de ESTE Cloud Shell."
 )
 st.warning(
-    "Si estás procesando en otra pestaña, no cierres ni reinicies esa pestaña. "
-    "No publiques los resultados ni el Web Preview en Internet."
+    "No cierres la pestaña que está procesando archivos y mantén Web Preview "
+    "restringido a usuarios autorizados: los resultados pueden contener datos personales."
 )
 
-RUNS_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def cargar_filas(csv_path: Path, limite: int = 300) -> list[dict]:
-    """Vista limitada para evitar bloquear la interfaz con CSV grandes."""
-    try:
-        with csv_path.open("r", encoding="utf-8-sig", newline="") as archivo:
-            lector = csv.DictReader(archivo)
-            filas = []
-            for _, fila in zip(range(limite), lector):
-                filas.append(fila)
-            return filas
-    except (OSError, csv.Error, UnicodeError) as exc:
-        st.error(f"No se pudo leer la vista previa: {exc}")
-        return []
-
-
-def listar_lotes() -> list[Path]:
-    try:
-        lotes = [
-            p for p in RUNS_DIR.iterdir()
-            if p.is_dir() and not p.is_symlink()
-            and ((p / "resumen_resultados_parcial.csv").is_file()
-                 or (p / "resumen_resultados.csv").is_file())
-        ]
-        return sorted(lotes, key=lambda p: p.stat().st_mtime, reverse=True)
-    except OSError:
-        return []
-
-
-if st.button("🔄 Actualizar archivos disponibles", use_container_width=False):
+if st.button("🔄 Actualizar lotes y resultados", type="primary"):
     st.rerun()
 
-lotes = listar_lotes()
+lotes = listar_lotes(BASE_DIR)
 if not lotes:
-    st.info("Todavía no hay CSV parciales o finales disponibles en este Cloud Shell.")
+    st.info("Todavía no hay lotes guardados localmente.")
     st.stop()
 
-nombres = [p.name for p in lotes]
-opcion = st.selectbox(
-    "Selecciona un lote (el más reciente aparece primero)",
-    options=nombres,
-    index=0,
-    key="lote_recuperacion",
-)
-seleccionado = lotes[nombres.index(opcion)]
-csv_final = seleccionado / "resumen_resultados.csv"
-csv_parcial = seleccionado / "resumen_resultados_parcial.csv"
-csv_actual = csv_final if csv_final.is_file() else csv_parcial
-zip_path = seleccionado / "scripts_ahk.zip"
-csv_error_final = seleccionado / "resumen_errores_reintentables.csv"
-csv_error_parcial = seleccionado / "resumen_errores_reintentables_parcial.csv"
-csv_error = csv_error_final if csv_error_final.is_file() else csv_error_parcial
-
-st.subheader(f"Lote {seleccionado.name}")
-st.write("**Estado:** " + ("Resultado final disponible" if csv_final.is_file() else "Recuperación parcial"))
+run_id = st.selectbox("Lote a recuperar (los más recientes primero)", lotes)
 try:
-    fecha = datetime.fromtimestamp(csv_actual.stat().st_mtime).astimezone().strftime("%Y-%m-%d %H:%M:%S")
-    st.caption(f"Último CSV guardado: {fecha}")
-except OSError:
-    pass
+    resultado = recuperar_lote(BASE_DIR, run_id)
+except (OSError, ValueError, UnicodeError) as exc:
+    st.error(f"No se pudo recuperar este lote: {exc}")
+    st.stop()
 
-filas = cargar_filas(csv_actual)
-completados = sum(1 for fila in filas if fila.get("Estado") == "Completado")
-st.metric("Filas disponibles en la vista previa", len(filas))
+filas = resultado["filas"]
+completados = sum(1 for f in filas if str(f.get("Estado", "")).casefold() == "completado")
+pendientes = sum(1 for f in filas if f.get("Estado") == "Error no iniciado")
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Resultados encontrados", len(filas))
+col2.metric("Completados", completados)
+col3.metric("Errores por reintentar", len(resultado["filas_error"]))
+col4.metric("Pendientes recuperados", pendientes)
 st.caption(
-    f"{completados} completados dentro de la vista previa. "
-    "La descarga CSV contiene el archivo completo, no solo las filas visibles."
+    "Un resultado parcial no significa que el procesamiento haya terminado. "
+    "Los PDFs sin fila guardada aparecen como errores reintentables."
 )
-if filas:
-    st.dataframe(filas, use_container_width=True, hide_index=True)
+if resultado["es_resultado_combinado"]:
+    st.info("Se han integrado los resultados del lote anterior y los reintentos disponibles.")
 
-col_csv, col_zip, col_error = st.columns(3)
-with col_csv:
-    if csv_actual.is_file():
-        with csv_actual.open("rb") as archivo:
+if filas:
+    st.dataframe(filas[:300], use_container_width=True, hide_index=True)
+    if len(filas) > 300:
+        st.caption("La vista muestra 300 filas como máximo; el CSV descargado incluye todas.")
+
+    csv_bytes = csv_recuperado_bytes(filas)
+    zip_bytes, num_ahk = zip_recuperado_bytes(filas, BASE_DIR)
+    col_csv, col_zip = st.columns(2)
+    with col_csv:
+        st.download_button(
+            "⬇️ Descargar CSV recuperado",
+            data=csv_bytes,
+            file_name=f"{run_id}_resultados_recuperados.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+    with col_zip:
+        if num_ahk:
             st.download_button(
-                "⬇️ Descargar CSV disponible",
-                data=archivo,
-                file_name=f"{seleccionado.name}_resultados.csv",
-                mime="text/csv",
-                use_container_width=True,
-            )
-with col_zip:
-    if zip_path.is_file():
-        with zip_path.open("rb") as archivo:
-            st.download_button(
-                "⬇️ Descargar ZIP AHK disponibles",
-                data=archivo,
-                file_name=f"{seleccionado.name}_scripts_ahk.zip",
+                f"⬇️ Descargar {num_ahk} AHK recuperados (ZIP)",
+                data=zip_bytes,
+                file_name=f"{run_id}_scripts_recuperados.zip",
                 mime="application/zip",
                 use_container_width=True,
             )
-    else:
-        st.info("Sin scripts AHK terminados.")
-with col_error:
-    if csv_error.is_file():
-        with csv_error.open("rb") as archivo:
-            st.download_button(
-                "⬇️ Descargar CSV de errores",
-                data=archivo,
-                file_name=f"{seleccionado.name}_errores.csv",
-                mime="text/csv",
-                use_container_width=True,
-            )
-    else:
-        st.caption("No existe CSV de errores para este lote.")
+        else:
+            st.info("No hay scripts AHK completados para este lote.")
+else:
+    st.info("Este lote no tiene resultados disponibles todavía.")
 
 st.caption(
-    "Si el archivo todavía se está escribiendo, pulsa Actualizar después de "
-    "que termine otro PDF. El CSV y ZIP se actualizan progresivamente."
+    "Para reintentar desde la app principal, usa «Recuperar resultados parciales» "
+    "cuando no tengas un lote activo en esa sesión; conserva siempre los PDFs originales."
 )
