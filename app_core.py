@@ -2922,13 +2922,31 @@ with st.container():
         else:
             modelo_opencode = "" if modelo_seleccionado_ui == opcion_default_modelo else modelo_seleccionado_ui
 
-        if modelo_opencode != modelo_guardado_previo:
+        if (modelo_opencode != modelo_local_guardado
+                and (excepciones_cuenta["modelo"] or bloques_globales["modelo"] is None)):
             guardar_modelo_opencode_persistente(modelo_opencode)
 
         if modelo_opencode:
             st.success(f"Modelo activo: {modelo_opencode}")
         else:
             st.info("Se usará el modelo por defecto de OpenCode.")
+        st.caption("Global compartido" if bloques_globales["modelo"] is not None and not excepciones_cuenta["modelo"] else "Configuración local o sesión actual")
+        if st.button(
+            "☁️ Publicar este modelo globalmente",
+            key="publicar_modelo_global",
+            disabled=not proyectos_globales["modelo"] or bool(errores_globales)
+                     or st.session_state["_revision_global_vista_modelo"] != revisiones_globales["modelo"],
+        ):
+            try:
+                guardar_bloque(
+                    "modelo", {"modelo": modelo_opencode},
+                    st.session_state["_revision_global_vista_modelo"],
+                )
+            except (ValueError, ErrorConfigGlobal) as exc:
+                st.error(str(exc))
+            else:
+                st.success("Modelo global publicado. Recarga para aplicar la nueva versión.")
+                _reiniciar_controles_globales()
 
         with st.expander("📝 Prompt Pregrado", expanded=False):
             prompt_pregrado = st.text_area(
@@ -2950,10 +2968,33 @@ with st.container():
             )
             st.caption(f"Ruta: {PROMPT_POSGRADO_PATH}")
 
-        if st.button("💾 Guardar prompts", use_container_width=True, key="btn_guardar_prompts_redisenado"):
+        if st.button(
+            "💾 Guardar prompts solo en este Cloud Shell",
+            use_container_width=True,
+            key="btn_guardar_prompts_redisenado",
+            disabled=bool(errores_globales)
+                     or (bloques_globales["prompts"] is not None and not excepciones_cuenta["prompts"]),
+        ):
             guardar_prompt_persistente(PROMPT_PREGRADO_PATH, prompt_pregrado)
             guardar_prompt_persistente(PROMPT_POSGRADO_PATH, prompt_posgrado)
-            st.success("Prompts guardados correctamente.")
+            st.success("Los prompts locales se guardaron; no se cambió Firestore.")
+        if st.button(
+            "☁️ Publicar ambos prompts globalmente",
+            key="publicar_prompts_globales",
+            use_container_width=True,
+            disabled=not proyectos_globales["prompts"] or bool(errores_globales)
+                     or st.session_state["_revision_global_vista_prompts"] != revisiones_globales["prompts"],
+        ):
+            try:
+                guardar_bloque(
+                    "prompts", {"pregrado": prompt_pregrado, "posgrado": prompt_posgrado},
+                    st.session_state["_revision_global_vista_prompts"],
+                )
+            except (ValueError, ErrorConfigGlobal) as exc:
+                st.error(str(exc))
+            else:
+                st.success("Prompts globales publicados; los archivos locales permanecen intactos.")
+                _reiniciar_controles_globales()
 
         st.markdown("#### Tolerancia a bloqueos y timeouts")
         col_timeout_1, col_timeout_2 = st.columns(2)
@@ -2983,15 +3024,32 @@ with st.container():
         timeout_opencode_segundos = int(timeout_opencode_minutos) * 60
         timeout_pdf_segundos = int(timeout_pdf_minutos) * 60
 
-        if (
-            int(timeout_opencode_minutos) != int(timeouts_persistidos["timeout_opencode_minutos"])
-            or int(timeout_pdf_minutos) != int(timeouts_persistidos["timeout_pdf_minutos"])
-            or not TIMEOUTS_PERSISTENTES_PATH.exists()
+        if excepciones_cuenta["timeouts"] or bloques_globales["timeouts"] is None:
+            if (
+                int(timeout_opencode_minutos) != int(timeouts_locales["timeout_opencode_minutos"])
+                or int(timeout_pdf_minutos) != int(timeouts_locales["timeout_pdf_minutos"])
+                or not TIMEOUTS_PERSISTENTES_PATH.exists()
+            ):
+                guardar_timeouts_persistentes(
+                    timeout_opencode_minutos=int(timeout_opencode_minutos),
+                    timeout_pdf_minutos=int(timeout_pdf_minutos),
+                )
+        if st.button(
+            "☁️ Publicar estos timeouts globalmente",
+            key="publicar_timeouts_globales",
+            disabled=not proyectos_globales["timeouts"] or bool(errores_globales)
+                     or st.session_state["_revision_global_vista_timeouts"] != revisiones_globales["timeouts"],
         ):
-            guardar_timeouts_persistentes(
-                timeout_opencode_minutos=int(timeout_opencode_minutos),
-                timeout_pdf_minutos=int(timeout_pdf_minutos),
-            )
+            try:
+                guardar_bloque("timeouts", {
+                    "timeout_opencode_minutos": int(timeout_opencode_minutos),
+                    "timeout_pdf_minutos": int(timeout_pdf_minutos),
+                }, st.session_state["_revision_global_vista_timeouts"])
+            except (ValueError, ErrorConfigGlobal) as exc:
+                st.error(str(exc))
+            else:
+                st.success("Timeouts globales publicados; los timeouts locales permanecen intactos.")
+                _reiniciar_controles_globales()
 
         max_workers_limite_ui = 1
         st.markdown("#### PDFs en paralelo")
