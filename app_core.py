@@ -15,6 +15,15 @@ from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from queue import Queue, Empty
 from datetime import datetime
 from dotenv import load_dotenv
+from operativa_compartida import (
+    TIPOS as TIPOS_GLOBALES,
+    leer_bloque,
+    guardar_bloque,
+    listar_historial,
+    restaurar_historial,
+)
+from excepciones_cloudshell import leer_excepciones, guardar_excepcion
+from programas_planes_sync import ErrorSincronizacion as ErrorConfigGlobal, EdicionDesactualizada as ConfigGlobalDesactualizada
 
 from ahk_builder import (
     AhkBuilderError,
@@ -2697,15 +2706,65 @@ if "modelos_opencode_resultado" not in st.session_state:
 if "pdf_uploader_version" not in st.session_state:
     st.session_state["pdf_uploader_version"] = 0
 
-prompt_pregrado = cargar_prompt_persistente(PROMPT_PREGRADO_PATH, PROMPT_PREGRADO)
-prompt_posgrado = cargar_prompt_persistente(PROMPT_POSGRADO_PATH, PROMPT_POSGRADO)
+# Los tres bloques comparten Firestore, pero los archivos locales no se modifican.
+# Primera publicación siempre explícita: no se migran valores de cuentas sin revisión.
+bloques_globales = {}
+revisiones_globales = {}
+proyectos_globales = {}
+errores_globales = {}
+for _tipo_global in TIPOS_GLOBALES:
+    try:
+        _valor_global, _revision_global, _proyecto_global = leer_bloque(_tipo_global)
+        bloques_globales[_tipo_global] = _valor_global
+        revisiones_globales[_tipo_global] = _revision_global
+        proyectos_globales[_tipo_global] = _proyecto_global
+    except ErrorConfigGlobal as exc:
+        bloques_globales[_tipo_global] = None
+        revisiones_globales[_tipo_global] = None
+        proyectos_globales[_tipo_global] = None
+        errores_globales[_tipo_global] = str(exc)
+    _key_revision = f"_revision_global_vista_{_tipo_global}"
+    if _key_revision not in st.session_state:
+        st.session_state[_key_revision] = revisiones_globales[_tipo_global]
+
+try:
+    excepciones_cuenta = leer_excepciones()
+except ValueError as exc:
+    excepciones_cuenta = {tipo: False for tipo in TIPOS_GLOBALES}
+    errores_globales["excepciones_locales"] = str(exc)
+
+def _seleccionar_global(tipo, local):
+    if bloques_globales.get(tipo) is not None and not excepciones_cuenta[tipo]:
+        return bloques_globales[tipo].copy()
+    return local.copy()
+
+def _reiniciar_controles_globales():
+    # Descartar el contenido del editor SOLAMENTE por acción explícita.
+    for clave in (
+        "prompt_pregrado", "prompt_posgrado",
+        "modelo_detectado_opencode", "modelo_manual_opencode",
+        "timeout_opencode_minutos", "timeout_pdf_minutos",
+    ):
+        st.session_state.pop(clave, None)
+    for tipo in TIPOS_GLOBALES:
+        st.session_state[f"_revision_global_vista_{tipo}"] = revisiones_globales[tipo]
+    reiniciar_app_streamlit()
+
+local_prompts = {
+    "pregrado": cargar_prompt_persistente(PROMPT_PREGRADO_PATH, PROMPT_PREGRADO),
+    "posgrado": cargar_prompt_persistente(PROMPT_POSGRADO_PATH, PROMPT_POSGRADO),
+}
+prompts_efectivos = _seleccionar_global("prompts", local_prompts)
+prompt_pregrado = prompts_efectivos["pregrado"]
+prompt_posgrado = prompts_efectivos["posgrado"]
 
 modelos_resultado = st.session_state.modelos_opencode_resultado
 modelos_detectados = modelos_resultado.get("models", [])
 opcion_default_modelo = "Usar modelo por defecto de OpenCode"
 opciones_modelo = [opcion_default_modelo] + modelos_detectados
 
-modelo_guardado_previo = cargar_modelo_opencode_persistente()
+modelo_local_guardado = cargar_modelo_opencode_persistente()
+modelo_guardado_previo = _seleccionar_global("modelo", {"modelo": modelo_local_guardado})["modelo"]
 indice_modelo_guardado = 0
 modelo_manual_guardado = ""
 if modelo_guardado_previo:
@@ -2714,7 +2773,8 @@ if modelo_guardado_previo:
     else:
         modelo_manual_guardado = modelo_guardado_previo
 
-timeouts_persistidos = cargar_timeouts_persistentes()
+timeouts_locales = cargar_timeouts_persistentes()
+timeouts_persistidos = _seleccionar_global("timeouts", timeouts_locales)
 
 with st.container():
     col_left, col_center, col_right = st.columns([1.05, 1.65, 1.0], gap="large")
