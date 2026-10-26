@@ -65,7 +65,7 @@ Las actas, resultados y AHK pueden contener información personal. **No expongas
 ```bash
 cd ~/homcloud
 git pull --ff-only origin main
-.venv/bin/python -m unittest test_configuracion_global test_recuperacion_lotes -v
+.venv/bin/python -m unittest test_configuracion_global test_recuperacion_lotes test_integridad_app -v
 bash ./run_cloudshell.sh
 ```
 
@@ -78,3 +78,7 @@ Realiza una prueba manual con 3 PDFs en una pestaña y abre **Recuperar resultad
 - Añadir un semáforo distribuido para limitar consumo combinado de APIs de ambos Cloud Shell.
 - Considerar respaldo externo privado y cifrado de históricos tras validar políticas de conservación de documentos.
 - No automatizar borrados hasta contar con mecanismos de restauración probados y una forma supervisada de cerrar marcadores de procesos huérfanos.
+
+## Validación automática de cambios
+
+El workflow `.github/workflows/homcloud-ci.yml` compila los módulos y ejecuta las pruebas puramente locales en GitHub Actions en cada push a `main` y cada pull request. No utiliza credenciales, no descarga PDFs y no llama a Firestore ni APIs externas. Es adicional a las pruebas manuales en Cloud Shell; **un workflow creado no significa que ya haya aprobado**. Consulta la pestaña Actions para ver su resultado.
