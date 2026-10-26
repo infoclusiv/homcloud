@@ -1,41 +1,80 @@
-# Preferencias globales y almacenamiento local (homcloud)
+# Preferencias globales, descargas y recuperación de homcloud
 
-## Configuración compartida
+## Configuración compartida entre Cloud Shell
 
-Ambas instancias utilizan el mismo proyecto Firestore ya configurado para programas/planes. El documento adicional `homcloud_config/preferencias_operativas` almacena únicamente:
-- `procesos_predeterminados` (1–20, valor inicial 4);
-- `retencion_dias` (1–90, valor inicial 7).
+Las dos cuentas utilizan el mismo Firestore que ya sincroniza programas y planes.
+El documento independiente `homcloud_config/preferencias_operativas` conserva:
+- `procesos_predeterminados` (1–20; si aún no hay valor guardado, 4).
+- `retencion_dias` (1–90; valor inicial 7).
 
-En la sección **Configuración operativa** se elige un valor y se pulsa **Guardar predeterminado global**. La selección del control sin pulsar guardar solo afecta a la sesión. En el otro Cloud Shell se pulsa **Recargar predeterminado** o se inicia una nueva sesión para cargar lo guardado. Las escrituras usan la versión de Firestore para detectar ediciones simultáneas.
+En **Configuración operativa**, cambia el deslizador y pulsa **Guardar predeterminado global**. El segundo Cloud Shell puede pulsar **Recargar predeterminado**, o abrir una nueva sesión. Las escrituras verifican la revisión: una edición antigua no sobreescribe cambios remotos sin avisar.
 
-Si Firestore está configurado pero inaccesible, **no** se guardan preferencias localmente como si fueran compartidas. Cuando Firestore no está configurado, se usa `settings/operacion_global.json` local. El JSON se ignora en Git.
+Sin proyecto Firestore configurado, las preferencias se guardan localmente en `settings/operacion_global.json` (excluido de Git). Si Firestore está configurado pero falla, no se guarda localmente como si fuera un dato global.
 
-Nota: el valor configurado es **por instancia**, no un límite agregado. Si ambas instancias ejecutan 10 workers pueden existir hasta 20 procesos combinados. Monitoriza cuotas y latencia de proveedores.
+**Importante:** el límite de concurrencia se aplica **por Cloud Shell**. Dos instancias con 10 procesos cada una pueden ejecutar hasta 20 workers combinados; no hay un semáforo compartido de cuotas de OpenCode/LLMWhisperer.
 
-## Descargas parciales y recuperación
+## Descargas sin esperar a terminar
 
-Cada PDF terminado actualiza:
-- `outputs/runs/<run_id>/resumen_resultados_parcial.csv`;
-- `outputs/runs/<run_id>/scripts_ahk.zip` si hay AHK;
-- una copia atómica de ambos en `static/exports/<run_id>/` para descargar durante la ejecución.
+Abre homcloud y, desde el menú lateral, entra a **Recuperar resultados**. Puedes abrir esa página en **otra pestaña** y mantener el procesamiento activo en la original. En la pestaña de recuperación:
+1. Pulsa **Actualizar lotes y resultados** después de que termine cada PDF.
+2. Selecciona el lote más reciente (o uno anterior).
+3. Descarga **CSV recuperado** o **ZIP de AHK recuperados** en cualquier momento.
 
-La interfaz publica los enlaces del CSV parcial y ZIP parcial al comenzar el lote: los archivos aparecen después del primer PDF completado. El enlace puede abrirse en otra pestaña sin esperar el último documento. Ante un reinicio de la sesión, aparece **Recuperar resultados parciales**: recupera la última tanda local disponible. No recupera archivos eliminados ni resultados de otra cuenta.
+La página reconstruye las filas en memoria, combinando reintentos con resultados previos. Si falta un resultado pero el PDF original sigue en `uploads/<run_id>/`, se marca `Error no iniciado` para poder reintentar. No requiere que el procesamiento finalice. Las descargas se hacen a través de widgets de Streamlit: **ya no se crean nuevos archivos en `static/exports` ni nuevas copias de PDFs en `static/pdfs`**.
 
-**Protección de datos:** los enlaces estáticos del servidor contienen datos posiblemente personales. Su URL tiene un identificador aleatorio y debe compartirse solo con personal autorizado. Si el Web Preview se expone públicamente, NO se deben utilizar descargas estáticas: utiliza un mecanismo autenticado o desactiva las descargas parciales. Los enlaces estáticos aleatorios no constituyen control de acceso. El método de publicación existente de PDFs originales en `static/pdfs` tiene esta misma limitación de seguridad. La limpieza de archivos antiguos también elimina las copias estáticas tras confirmación.
+Los PDF originales se descargan desde un selector en las tablas finales. Los nombres de archivo dejaron de ser enlaces directos al servidor estático para evitar exponer documentos personales con URLs reutilizables. Los enlaces estáticos antiguos dejan de funcionar porque `enableStaticServing=false`. Las copias antiguas siguen en disco hasta eliminarlas mediante limpieza manual confirmada.
 
-## Almacenamiento
+**Limitaciones:** si termina el proceso del servidor o se apaga Cloud Shell, las descargas no estarán disponibles hasta volver a iniciar la aplicación. Esta página lee discos **locales**, no los de la otra cuenta. Si se dañó el disco o se borraron archivos, esta función no los puede reconstruir. Los resultados parciales se guardan después de cada PDF finalizado; una interrupción antes del primer resultado deja disponibles solo los PDFs originales para reintentar.
 
-La sección **Almacenamiento local** muestra tamaños de `uploads/`, `outputs/runs/`, `static/pdfs/` y `static/exports/`. Ofrece limpieza **manual y confirmada** de elementos con última modificación anterior a los días de retención configurados, conservando el lote más reciente y los IDs de la sesión actual. Nunca modifica Firestore ni el otro Cloud Shell.
+## Recuperación desde la pantalla principal
 
-La limpieza de copias antiguas puede invalidar enlaces a PDFs y resultados de lotes anteriores; descarga o respalda antes de limpiar. La aplicación no puede garantizar recuperación después de un borrado.
+La sección **Recuperar o cambiar de lote anterior** permite seleccionar cualquier lote almacenado localmente y cargarlo como `ultimo_lote`. El programa integra respuestas del lote padre y los reintentos, y marca PDFs sin respuesta para reintentar. Los originales se buscan **solo dentro de la cadena de lotes relacionadas**, evitando confundir PDFs homónimos de diferentes tandas. Después de recuperar el lote, en el próximo render aparece el panel de reintentos.
 
-Recomendado antes de empezar un lote: verificar el espacio disponible desde la terminal con `df -h ~` y comprobar los archivos con `du -sh ~/homcloud/uploads ~/homcloud/outputs ~/homcloud/static 2>/dev/null`.
+Un ZIP recuperado puede combinar scripts AHK guardados en varios lotes padres; el centro de descargas los empaqueta en memoria y no deja otra copia permanente.
 
-## Configuraciones candidatas para próxima fase
+## Persistencia y ahorro de espacio
 
-- Prompts Pregrado/Posgrado: **globales** con historial y revisión, tras respaldo y aprobación; hoy siguen locales.
-- Modelo OpenCode: **global por defecto con sobrescritura local**, porque cada cuenta puede tener modelos diferentes.
-- Timeouts: **globales con sobrescritura local** y límites validados; hoy siguen locales.
-- Frecuencia de limpieza automática: mantener **desactivada** hasta contar con restauración y protección de trabajos realmente activos.
-- Claves de API, tokens, credenciales ADC, uploads originales, resultados con datos personales: **NO** incluir en Firestore de preferencias ni en Git.
-- Cuota agregada de dos Cloud Shell y bloqueo distribuido: proponer mecanismo específico; la preferencia de workers no es un semáforo entre instancias.
+- El primer procesamiento conserva una copia del PDF original en `uploads/<run_id>/` para permitir reintentos.
+- Al reintentar, cuando es posible se crea un **hard link** al mismo PDF original en vez de duplicar sus bytes. El worker no sobrescribe ese archivo compartido. Si no se puede crear el hard link, se conserva la alternativa de guardar el PDF normalmente.
+- CSV y ZIP de cada lote se escriben a un archivo temporal y luego se sustituyen atómicamente, de modo que otras pestañas no descarguen un archivo a medio escribir.
+- El inventario cuenta los hard links una sola vez para estimar el espacio físico ocupado.
+- El inventario y el escaneo de carpetas no se ejecutan en cada actualización de Streamlit: pulsa **Analizar almacenamiento ahora** cuando lo necesites.
+
+## Limpieza local conservadora
+
+La retención (7 días predeterminados) no implica borrado automático. En el panel **Almacenamiento local**:
+1. Pulsa **Analizar almacenamiento ahora**.
+2. Revisa tamaños y número de elementos candidatos.
+3. Confirma que tienes respaldos y pulsa **Eliminar archivos antiguos**.
+
+Se protegen el último lote y los lotes con `.procesamiento_activo`, junto con los uploads con el mismo ID. La marca se elimina cuando un lote acaba sin timeout externo. Una interrupción abrupta o un worker huérfano pueden dejar la marca: **no la borres sin verificar que ningún proceso del lote siga activo y sin rescatar los resultados**. La limpieza no toca Firestore ni los archivos del otro Cloud Shell.
+
+Antes de borrar, es útil ejecutar:
+
+```bash
+df -h ~
+du -sh ~/homcloud/uploads ~/homcloud/outputs ~/homcloud/static 2>/dev/null
+```
+
+## Seguridad
+
+Las actas, resultados y AHK pueden contener información personal. **No expongas la vista previa de Cloud Shell a usuarios no autorizados.** Streamlit no es, por sí mismo, un sistema de autenticación para documentos. Ya no se publica material nuevo bajo `static/`; si existen copias antiguas en disco, pueden eliminarse solo después de contar con respaldos. No guardes credenciales, claves API ni PDFs en Git o Firestore de preferencias.
+
+## Despliegue y pruebas en ambas cuentas
+
+```bash
+cd ~/homcloud
+git pull --ff-only origin main
+.venv/bin/python -m unittest test_configuracion_global test_recuperacion_lotes -v
+bash ./run_cloudshell.sh
+```
+
+Realiza una prueba manual con 3 PDFs en una pestaña y abre **Recuperar resultados** en otra. Tras el primer PDF completado, confirma que se puede descargar su CSV y AHK sin esperar a los otros. Prueba a recuperar un lote interrumpido y reintentar exclusivamente los errores. Verifica que no se crearon archivos nuevos en `static/pdfs` ni `static/exports`.
+
+## Pendientes para una futura fase
+
+- Compartir prompts Pregrado/Posgrado en Firestore con control de revisión, versionado y respaldo.
+- Definir modelo predeterminado y timeouts globales con posibilidad de excepción por Cloud Shell.
+- Añadir un semáforo distribuido para limitar consumo combinado de APIs de ambos Cloud Shell.
+- Considerar respaldo externo privado y cifrado de históricos tras validar políticas de conservación de documentos.
+- No automatizar borrados hasta contar con mecanismos de restauración probados y una forma supervisada de cerrar marcadores de procesos huérfanos.
