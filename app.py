@@ -20,6 +20,7 @@ from programas_planes_sync import (
 )
 from excel_runtime_patch import aplicar_soporte_excel
 from configuracion_global import leer_preferencias, guardar_preferencias
+from retencion_local import inventario, candidatos_limpieza, limpiar_archivos_antiguos
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -440,6 +441,29 @@ with st.container():
             st.warning("Más de 6 procesos puede aumentar errores de API, saturación o timeouts.")
         else:
             st.caption("Recomendado: 2 a 6 procesos simultáneos. Máximo disponible: 20.")
+
+        with st.expander("🧹 Almacenamiento local", expanded=False):
+            uso = inventario(BASE_DIR)
+            st.metric("Almacenamiento de lotes", f"{uso['bytes'] / 1048576:.1f} MB")
+            st.caption(f"{uso['archivos']} archivos almacenados")
+            for nombre_carpeta, datos_carpeta in uso["carpetas"].items():
+                st.caption(f"{nombre_carpeta}: {datos_carpeta['bytes'] / 1048576:.1f} MB")
+            dias = int(preferencias_operativas.get("retencion_dias", 7))
+            lote_activo = st.session_state.get("ultimo_lote") or {}
+            protegidos = {str(lote_activo.get("run_id") or ""), str(lote_activo.get("parent_run_id") or "")}
+            candidatos = candidatos_limpieza(BASE_DIR, dias, protegidos)
+            st.caption(f"Retención: {dias} días · {len(candidatos)} elementos candidatos.")
+            confirmar_limpieza = st.checkbox(
+                "Ya tengo respaldo de los resultados antiguos", key="confirmar_limpieza_lotes"
+            )
+            if st.button("Eliminar archivos antiguos", key="borrar_lotes_antiguos",
+                         disabled=not confirmar_limpieza or not candidatos):
+                try:
+                    borrados = limpiar_archivos_antiguos(BASE_DIR, dias, protegidos)
+                    st.success(f"Se eliminaron {len(borrados)} elementos antiguos de este Cloud Shell.")
+                except OSError as exc:
+                    st.error(f"No se pudo completar la limpieza: {exc}")
+            st.caption("Limpieza manual local. No afecta al otro Cloud Shell ni a Firestore.")
 
     with col_programas:
         with st.expander(
