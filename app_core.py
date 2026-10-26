@@ -2706,6 +2706,17 @@ if "modelos_opencode_resultado" not in st.session_state:
 if "pdf_uploader_version" not in st.session_state:
     st.session_state["pdf_uploader_version"] = 0
 
+# Vaciar claves antes de crear los widgets, no después de renderizarlos.
+if st.session_state.pop("_reset_global_controles_pendiente", False):
+    for clave in (
+        "prompt_pregrado", "prompt_posgrado",
+        "modelo_detectado_opencode", "modelo_manual_opencode",
+        "timeout_opencode_minutos", "timeout_pdf_minutos",
+    ):
+        st.session_state.pop(clave, None)
+    for tipo in TIPOS_GLOBALES:
+        st.session_state.pop(f"_revision_global_vista_{tipo}", None)
+
 # Los tres bloques comparten Firestore, pero los archivos locales no se modifican.
 # Primera publicación siempre explícita: no se migran valores de cuentas sin revisión.
 bloques_globales = {}
@@ -2747,15 +2758,9 @@ def _seleccionar_global(tipo, local):
     return local.copy()
 
 def _reiniciar_controles_globales():
-    # Descartar el contenido del editor SOLAMENTE por acción explícita.
-    for clave in (
-        "prompt_pregrado", "prompt_posgrado",
-        "modelo_detectado_opencode", "modelo_manual_opencode",
-        "timeout_opencode_minutos", "timeout_pdf_minutos",
-    ):
-        st.session_state.pop(clave, None)
-    for tipo in TIPOS_GLOBALES:
-        st.session_state.pop(f"_revision_global_vista_{tipo}", None)
+    # Posponer el borrado al inicio de la próxima ejecución de Streamlit:
+    # modificar estado de widgets ya renderizados puede disparar una excepción.
+    st.session_state["_reset_global_controles_pendiente"] = True
     reiniciar_app_streamlit()
 
 local_prompts = {
