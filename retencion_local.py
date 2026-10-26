@@ -99,9 +99,13 @@ def limpiar_archivos_antiguos(
     candidatos = candidatos_limpieza(base_dir, dias, protegidos)
     umbral = (datetime.now(timezone.utc) - timedelta(days=int(dias))).timestamp()
     borrados = []
+    proteccion_inicial = lotes_protegidos(base_dir, protegidos)
     for ruta in candidatos:
-        # Revalidar protección y modificaciones antes de cada borrado.
-        if ruta.name in lotes_protegidos(base_dir, protegidos):
+        # Revalidar modificacion y marca del propio lote sin re-escanear
+        # TODOS los lotes en cada iteración.
+        if ruta.name in proteccion_inicial:
+            continue
+        if ruta.is_dir() and (ruta / MARCADOR_ACTIVIDAD).exists():
             continue
         if not _seguro_y_antiguo(ruta, umbral):
             continue
