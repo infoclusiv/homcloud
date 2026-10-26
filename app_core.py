@@ -1317,8 +1317,11 @@ def procesar_pdf(
 
     reportar("Guardando PDF", 0.03, "Guardando el archivo cargado en la carpeta del lote.")
 
-    with open(pdf_path, "wb") as f:
-        f.write(uploaded_file.getbuffer())
+    # El original ya se guardó preventivamente antes de iniciar los workers.
+    # No sobrescribirlo: en reintentos puede ser un hard link al lote inicial.
+    if not pdf_path.is_file():
+        with open(pdf_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
 
     reportar("LLMWhisperer", 0.12, "Enviando PDF a LLMWhisperer y esperando la extracción de texto.")
 
@@ -1844,7 +1847,20 @@ def ejecutar_lote_streamlit(
         try:
             pdf_inicial_path = run_uploads_dir / sanitizar_nombre_archivo(job.name)
             if not pdf_inicial_path.exists():
-                pdf_inicial_path.write_bytes(job.getbuffer())
+                # Un reintento reutiliza el mismo PDF sin consumir el doble de disco.
+                fuente_padre = (
+                    UPLOADS_DIR / parent_run_id / sanitizar_nombre_archivo(job.name)
+                    if parent_run_id else None
+                )
+                if (fuente_padre and fuente_padre.is_file()
+                        and not fuente_padre.is_symlink()
+                        and fuente_padre.stat().st_size == len(job.getbuffer())):
+                    try:
+                        os.link(fuente_padre, pdf_inicial_path)
+                    except OSError:
+                        pdf_inicial_path.write_bytes(job.getbuffer())
+                else:
+                    pdf_inicial_path.write_bytes(job.getbuffer())
         except Exception:
             pass
 
