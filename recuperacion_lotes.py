@@ -102,8 +102,8 @@ def recuperar_lote(base_dir: Path, run_id: str, _vistos: set[str] | None = None)
     }
     uploads = base_dir / "uploads" / run_id
     if uploads.is_dir() and not uploads.is_symlink():
-        for pdf in sorted(uploads.glob("*.pdf")):
-            if pdf.is_symlink() or not pdf.is_file():
+        for pdf in sorted(uploads.iterdir()):
+            if pdf.suffix.casefold() != ".pdf" or pdf.is_symlink() or not pdf.is_file():
                 continue
             if pdf.name.casefold() not in archivos_presentes:
                 filas_actuales.append({
