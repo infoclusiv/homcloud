@@ -1,0 +1,28 @@
+name: Homcloud integrity and recovery tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile application modules
+        run: |
+          python -m compileall -q app.py app_core.py configuracion_global.py recuperacion_lotes.py retencion_local.py pages/02_Recuperar_resultados.py
+      - name: Run pure-Python tests (no credentials or APIs)
+        run: |
+          python -m unittest test_configuracion_global test_recuperacion_lotes test_integridad_app -v
