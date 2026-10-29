@@ -13,9 +13,8 @@ from historial_homologaciones import (
     COLUMNAS,
     csv_historial_bytes,
     exportar_historial,
-    archivar_lote,
+    importar_lotes_existentes,
 )
-from recuperacion_lotes import listar_lotes
 from programas_planes_sync import ErrorSincronizacion, proyecto_configurado
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -49,20 +48,18 @@ with st.expander("Importar resultados de sesiones existentes", expanded=False):
         "historial antes de que se eliminen. Esta operación no borra documentos."
     )
     if st.button("📥 Importar lotes disponibles", key="importar_historiales"):
-        exitosos, errores = 0, []
-        for lote in listar_lotes(BASE_DIR):
-            try:
-                archivar_lote(BASE_DIR, lote)
-                exitosos += 1
-            except (OSError, ValueError, ErrorSincronizacion) as exc:
-                errores.append(f"{lote}: {exc}")
-        st.success(f"{exitosos} lote(s) revisados y archivados.")
-        if errores:
+        with st.spinner("Archivando CSV antiguos sin borrar originales..."):
+            resultado = importar_lotes_existentes(BASE_DIR)
+        st.success(f"{resultado['archivados']} lote(s) revisados y archivados.")
+        if resultado["omitidos_activos"]:
+            st.info(f"{resultado['omitidos_activos']} lote(s) en ejecución se omitieron.")
+        if resultado["errores"]:
             st.warning(
-                f"{len(errores)} lote(s) no se archivaron y se mantendrán en disco."
+                f"{len(resultado['errores'])} lote(s) no se archivaron. "
+                "Sus archivos se conservarán."
             )
             with st.expander("Detalles de lotes no archivados"):
-                st.text("\n".join(errores[:20]))
+                st.text("\\n".join(resultado["errores"][:20]))
 
 if st.button("🔄 Consultar historial completo", type="primary", key="consultar_historial"):
     try:
