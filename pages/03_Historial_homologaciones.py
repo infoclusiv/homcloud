@@ -59,7 +59,7 @@ with st.expander("Importar resultados de sesiones existentes", expanded=False):
                 "Sus archivos se conservarán."
             )
             with st.expander("Detalles de lotes no archivados"):
-                st.text("\\n".join(resultado["errores"][:20]))
+                st.text("\n".join(resultado["errores"][:20]))
 
 if st.button("🔄 Consultar historial completo", type="primary", key="consultar_historial"):
     try:
