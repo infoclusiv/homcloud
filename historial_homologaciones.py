@@ -226,13 +226,14 @@ def archivar_lote(base: Path, run_id: str) -> dict:
         except (ValueError, OSError):
             pass
 
-    # Si Firestore está configurado y no responde, no hacemos limpieza.
+    # Conservar primero una copia compacta local. Si Firestore está caído,
+    # el CSV local sigue disponible, pero NO se autoriza eliminar los PDFs.
+    _guardar_csv_local(base, registros)
     if proyecto:
         try:
             _subir_firestore(registros, proyecto)
         except Exception as exc:
             raise ErrorSincronizacion(f"Falló guardar el historial en Firestore: {exc}") from exc
-    _guardar_csv_local(base, registros)
     recibo.parent.mkdir(parents=True, exist_ok=True)
     temporal = recibo.with_suffix(".json.tmp")
     try:
