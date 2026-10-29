@@ -19,6 +19,7 @@ from programas_planes_sync import (
 )
 from excel_runtime_patch import aplicar_soporte_excel
 from configuracion_global import leer_preferencias, guardar_preferencias
+from historial_homologaciones import mantenimiento_periodico
 from retencion_local import inventario, candidatos_limpieza, limpiar_archivos_antiguos
 from pdf_enlaces import publicar_pdf
 from configuracion_tabla import (
@@ -451,7 +452,7 @@ try:
     preferencias_operativas, revision_operativa, proyecto_operativo = leer_preferencias()
     error_operativa = None
 except (ErrorSincronizacion, ValueError) as exc:
-    preferencias_operativas, revision_operativa, proyecto_operativo = {"procesos_predeterminados": 4}, None, None
+    preferencias_operativas, revision_operativa, proyecto_operativo = {"procesos_predeterminados": 4, "retencion_dias": 7, "retencion_pdfs_dias": 3}, None, None
     error_operativa = str(exc)
 try:
     programas_planes_guardados, revision_planes, proyecto_planes = leer_configuracion(PROGRAMAS_PLANES_PATH)
@@ -475,6 +476,23 @@ with st.container():
         '<div class="panel-subtitle">La concurrencia y la relación programa–plan quedan accesibles arriba, antes de cargar los PDFs.</div>',
         unsafe_allow_html=True,
     )
+
+    # Mantenimiento local automático (cuando la app se utiliza). No borra
+    # ningún lote antes de confirmar que sus filas están en el historial.
+    if not error_operativa:
+        try:
+            estado_mantenimiento = mantenimiento_periodico(
+                BASE_DIR, dias=int(preferencias_operativas.get("retencion_pdfs_dias", 3))
+            )
+        except (ValueError, ErrorSincronizacion, OSError) as error_mantenimiento:
+            st.warning(f"No fue posible comprobar la limpieza automática: {error_mantenimiento}")
+        else:
+            if estado_mantenimiento.get("errores"):
+                st.warning(
+                    f"Historial y limpieza: {len(estado_mantenimiento['errores'])} lote(s) "
+                    "no se eliminaron porque no se pudieron archivar o limpiar. "
+                    "Conservamos los originales para evitar pérdidas."
+                )
 
     col_parallel, col_programas = st.columns([1.0, 2.15], gap="large")
 
@@ -505,10 +523,23 @@ with st.container():
                 help="Se comparte el número de días; la eliminación se realiza manualmente en cada Cloud Shell.",
                 key="retencion_dias_global",
             )
+            retencion_pdfs_dias = st.number_input(
+                "Eliminar archivos de lotes después de (días)",
+                min_value=1, max_value=90, step=1,
+                value=int(preferencias_operativas.get("retencion_pdfs_dias", 3)),
+                key="retencion_pdfs_dias_global",
+                help=("Por defecto 3 días. Archiva filas del lote en Firestore/CSV "
+                      "antes de eliminar PDFs y archivos temporales. "
+                      "Se ejecuta al usar la aplicación, no con Cloud Shell apagado."),
+            )
+            st.caption(
+                "Archivos de PDFs y trabajo temporal: eliminación automática. "
+                "Histórico de homologaciones: permanente y exportable a CSV."
+            )
             if st.button("💾 Guardar predeterminado global", key="guardar_concurrencia_global",
                          disabled=st.session_state["_revision_preferencias_operativas"] != revision_operativa):
                 try:
-                    guardar_preferencias({"procesos_predeterminados": max_workers_opencode, "retencion_dias": int(retencion_dias)}, revision_operativa)
+                    guardar_preferencias({"procesos_predeterminados": max_workers_opencode, "retencion_dias": int(retencion_dias), "retencion_pdfs_dias": int(retencion_pdfs_dias)}, revision_operativa)
                 except (ValueError, ErrorSincronizacion) as exc:
                     st.error(str(exc))
                 else:
