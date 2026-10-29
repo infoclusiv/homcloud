@@ -150,24 +150,30 @@ def registros_de_lote(base: Path, run_id: str) -> tuple[list[dict], str]:
     cuenta = os.environ.get("USER") or os.environ.get("LOGNAME") or socket.gethostname()
     registros = []
     for indice, fila in enumerate(filas):
-        ident = f"{run_id}_{indice:05d}"
+        nombre = str(fila.get("Archivo") or "")
+        identificador_archivo = hashlib.sha256(
+            nombre.casefold().encode("utf-8")
+        ).hexdigest()[:24] if nombre else f"fila{indice:05d}"
+        # ID estable por lote+archivo: reescribir un reintento corregido
+        # no duplica registros históricos ni depende del orden del CSV.
+        ident = f"{run_id}_{identificador_archivo}"
         registros.append({
             "ID registro": ident,
             "Fecha": str(fecha),
             "Cloud Shell": str(cuenta),
             "Lote": run_id,
             "Lote padre": str(metadata.get("parent_run_id") or ""),
-            "Archivo": str(fila.get("Archivo") or ""),
-            "Nivel": str(fila.get("Nivel") or ""),
-            "Prompt usado": str(fila.get("Prompt usado") or ""),
-            "Programa origen": str(fila.get("Programa origen") or ""),
-            "Programa al que aspira": str(fila.get("Programa al que aspira") or ""),
-            "Plan": str(fila.get("Plan") or ""),
-            "Créditos homologados": str(fila.get("Créditos homologados") or ""),
-            "Estado": str(fila.get("Estado") or ""),
-            "Error": str(fila.get("Error") or ""),
-            "Duración": str(fila.get("Duración") or ""),
-            "Modelo OpenCode": str(fila.get("Modelo OpenCode") or metadata.get("modelo_opencode") or ""),
+            "Archivo": nombre[:350],
+            "Nivel": str(fila.get("Nivel") or "")[:500],
+            "Prompt usado": str(fila.get("Prompt usado") or "")[:500],
+            "Programa origen": str(fila.get("Programa origen") or "")[:500],
+            "Programa al que aspira": str(fila.get("Programa al que aspira") or "")[:500],
+            "Plan": str(fila.get("Plan") or "")[:500],
+            "Créditos homologados": str(fila.get("Créditos homologados") or "")[:500],
+            "Estado": str(fila.get("Estado") or "")[:500],
+            "Error": str(fila.get("Error") or "")[:1500],
+            "Duración": str(fila.get("Duración") or "")[:500],
+            "Modelo OpenCode": str(fila.get("Modelo OpenCode") or metadata.get("modelo_opencode") or "")[:200],
         })
     return registros, huella
 
