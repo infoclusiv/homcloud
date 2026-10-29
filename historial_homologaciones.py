@@ -10,6 +10,7 @@ Shell apagado NO ejecuta tareas programadas; al volver a abrir se regulariza.
 from __future__ import annotations
 
 import csv
+import fcntl
 from datetime import datetime, timedelta
 import hashlib
 import io
@@ -328,22 +329,91 @@ def limpiar_antiguos(base: Path, dias: int = RETENCION_DIAS_DEFAULT) -> dict:
 
 
 def mantenimiento_periodico(base: Path, dias: int = 3, intervalo_horas: int = 12) -> dict:
-    """Se ejecuta automáticamente al abrir la app, como máximo 2 veces al día."""
+    """Limpieza automática al usar homcloud, sin dos sesiones compitiendo.
+
+    No es un cron de Google: si Cloud Shell está apagado, se ejecuta al
+    siguiente inicio o interacción que rerenderice la aplicación.
+    """
     validar_dias(dias)
-    estado_path = base / CARPETA_HISTORIAL / "ultimo_mantenimiento.json"
-    if estado_path.is_file():
+    carpeta = base / CARPETA_HISTORIAL
+    carpeta.mkdir(parents=True, exist_ok=True)
+    lock_path = carpeta / ".mantenimiento.lock"
+    with lock_path.open("a+") as lock:
         try:
-            estado = json.loads(estado_path.read_text(encoding="utf-8"))
-            if (estado.get("dias") == dias
-                    and time.time() - float(estado["timestamp"]) < intervalo_horas*3600):
-                return {"omitido": True, "errores": []}
-        except (ValueError, TypeError, OSError, KeyError):
-            pass
-    resultado = limpiar_antiguos(base, dias)
-    # En caso de error, no posponer 12 horas la siguiente oportunidad.
-    if not resultado["errores"]:
-        estado_path.parent.mkdir(parents=True, exist_ok=True)
-        temp = estado_path.with_suffix(".tmp")
-        temp.write_text(json.dumps({"timestamp": time.time(), "dias": dias}), encoding="utf-8")
-        os.replace(temp, estado_path)
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return {"omitido": True, "errores": []}
+        try:
+            estado_path = carpeta / "ultimo_mantenimiento.json"
+            if estado_path.is_file():
+                try:
+                    estado = json.loads(estado_path.read_text(encoding="utf-8"))
+                    if (estado.get("dias") == dias
+                            and time.time() - float(estado["timestamp"]) < intervalo_horas * 3600):
+                        return {"omitido": True, "errores": []}
+                except (ValueError, TypeError, OSError, KeyError):
+                    pass
+            resultado = limpiar_antiguos(base, dias)
+            # Si hubo errores, volver a intentarlo en la próxima ejecución.
+            if not resultado["errores"]:
+                temporal = estado_path.with_suffix(".tmp")
+                try:
+                    temporal.write_text(
+                        json.dumps({"timestamp": time.time(), "dias": dias}),
+                        encoding="utf-8",
+                    )
+                    os.replace(temporal, estado_path)
+                finally:
+                    temporal.unlink(missing_ok=True)
+            return resultado
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def importar_lotes_existentes(base: Path) -> dict:
+    """Migra histórico previo sin borrar PDFs, útil para ambas cuentas."""
+    runs = base / "outputs" / "runs"
+    resultado = {"archivados": 0, "omitidos_activos": 0, "errores": []}
+    if not runs.is_dir():
+        return resultado
+    for ruta in sorted(runs.iterdir()):
+        if not ruta.is_dir() or ruta.is_symlink() or not RUN_ID_RE.fullmatch(ruta.name):
+            continue
+        if lote_en_ejecucion(ruta):
+            resultado["omitidos_activos"] += 1
+            continue
+        try:
+            archivar_lote(base, ruta.name)
+            resultado["archivados"] += 1
+        except Exception as exc:
+            resultado["errores"].append(f"{ruta.name}: {exc}")
     return resultado
+
+
+def _cli():
+    import argparse
+    parser = argparse.ArgumentParser(description="Historial y retención de homcloud")
+    parser.add_argument(
+        "accion", choices=("importar", "limpiar", "estado"),
+        help="importar conserva todos los archivos; limpiar archiva antes de borrar",
+    )
+    parser.add_argument("--dias", type=int, default=3)
+    args = parser.parse_args()
+    base = Path(__file__).resolve().parent
+    if args.accion == "importar":
+        respuesta = importar_lotes_existentes(base)
+    elif args.accion == "limpiar":
+        respuesta = limpiar_antiguos(base, dias=args.dias)
+    else:
+        raiz = base / "outputs" / "runs"
+        respuesta = {
+            "lotes_en_disco": len([p for p in raiz.iterdir() if p.is_dir()]) if raiz.is_dir() else 0,
+            "historial_local": str(base / CARPETA_HISTORIAL / NOMBRE_CSV),
+            "dias_predeterminados": RETENCION_DIAS_DEFAULT,
+        }
+    print(json.dumps(respuesta, ensure_ascii=False, indent=2))
+    return 1 if respuesta.get("errores") else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_cli())
