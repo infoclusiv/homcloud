@@ -325,6 +325,20 @@ def limpiar_antiguos(base: Path, dias: int = RETENCION_DIAS_DEFAULT) -> dict:
                     resumen["pdf_enlaces"] += 1
             except OSError as exc:
                 resumen["errores"].append(f"{carpeta.name}: {exc}")
+    # Descargas estáticas legadas: también ocupan espacio en versiones
+    # anteriores. Solo eliminar las que tengan recibo de historial confirmado.
+    exportaciones = base / "static" / "exports"
+    if exportaciones.is_dir():
+        for ruta_export in exportaciones.iterdir():
+            if not ruta_export.is_dir() or ruta_export.is_symlink():
+                continue
+            try:
+                recibo = base / CARPETA_HISTORIAL / "recibos" / f"{ruta_export.name}.json"
+                if (recibo.is_file()
+                        and datetime.fromtimestamp(ruta_export.stat().st_mtime) < umbral):
+                    _borrar_path(ruta_export)
+            except OSError as exc:
+                resumen["errores"].append(f"exports/{ruta_export.name}: {exc}")
     return resumen
 
 
