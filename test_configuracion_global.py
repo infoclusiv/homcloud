@@ -11,7 +11,7 @@ from retencion_local import candidatos_limpieza, inventario
 
 class PreferenciasTests(unittest.TestCase):
     def test_defaults(self):
-        self.assertEqual(config.validar_preferencias({}), {"procesos_predeterminados": 4, "retencion_dias": 7})
+        self.assertEqual(config.validar_preferencias({}), {"procesos_predeterminados": 4, "retencion_dias": 7, "retencion_pdfs_dias": 3})
 
     def test_limites(self):
         for valor in (0, 21, True, 1.5, "nada"):
@@ -20,6 +20,9 @@ class PreferenciasTests(unittest.TestCase):
         for dias in (0, 91, True, 2.5):
             with self.subTest(dias=dias), self.assertRaises(ValueError):
                 config.validar_preferencias({"retencion_dias": dias})
+        for dias in (0, 91, True, "no es numero"):
+            with self.subTest(dias=dias), self.assertRaises(ValueError):
+                config.validar_preferencias({"retencion_pdfs_dias": dias})
 
     def test_fallback_local(self):
         with TemporaryDirectory() as tmp, patch.object(config, "LOCAL_PATH", Path(tmp) / "prefs.json"), patch.object(config, "proyecto_configurado", return_value=None):
