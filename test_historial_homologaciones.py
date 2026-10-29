@@ -92,13 +92,14 @@ class HistorialTests(unittest.TestCase):
             self.assertFalse(ruta.exists())
             self.assertFalse((base / "uploads" / ruta.name).exists())
             self.assertFalse(publicada.exists())
-            self.assertEqual(len(h.exportar_historial(base)), 2) if False else None
             self.assertEqual(len(h._leer_csv(base / "historial" / "homologaciones_historico.csv")), 2)
 
     def test_lote_reciente_no_se_borra(self):
         with TemporaryDirectory() as carpeta:
             base = Path(carpeta)
-            ruta = _preparar_lote(base, "20261029_093000_abc123")
+            from datetime import datetime
+            actual = datetime.now().strftime("%Y%m%d_%H%M%S") + "_abc123"
+            ruta = _preparar_lote(base, actual)
             with patch.object(h, "proyecto_configurado", return_value=None):
                 resultado = h.limpiar_antiguos(base, 3)
             self.assertEqual(resultado["borrados"], 0)
