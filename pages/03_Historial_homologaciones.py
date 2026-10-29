@@ -36,6 +36,21 @@ st.info(
     f"Fuente: Firestore compartido ({proyecto})" if proyecto
     else "Fuente: CSV local de este Cloud Shell (Firestore no configurado)."
 )
+respaldo_local = BASE_DIR / "historial" / "homologaciones_historico.csv"
+if respaldo_local.is_file():
+    with respaldo_local.open("rb") as respaldo:
+        st.download_button(
+            "⬇️ Descargar respaldo CSV local de este Cloud Shell",
+            data=respaldo,
+            file_name="historial_homologaciones_respaldo_local.csv",
+            mime="text/csv",
+            key="descargar_respaldo_csv_local",
+        )
+    st.caption(
+        "El respaldo local puede descargarse incluso si Firestore no responde. "
+        "Para reunir ambas cuentas utiliza Consultar historial completo."
+    )
+
 st.caption(
     "El historial registra cada intento con su identificador de lote y estado. "
     "Los reintentos pueden generar un registro adicional para el mismo documento. "
