@@ -58,3 +58,6 @@ settings/excepciones_cloudshell.json
 
 # Secret key used to make the PDF browser URLs unguessable
 settings/.pdf_link_secret
+
+# Permanent local compact homologation history and maintenance receipts
+historial/
