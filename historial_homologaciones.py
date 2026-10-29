@@ -180,22 +180,35 @@ def registros_de_lote(base: Path, run_id: str) -> tuple[list[dict], str]:
 
 
 def _guardar_csv_local(base: Path, registros: list[dict]) -> None:
-    """CSV acumulativo local, atómico e idempotente por ID."""
+    """CSV acumulativo, atómico, privado e idempotente, con bloqueo local."""
     path = base / CARPETA_HISTORIAL / NOMBRE_CSV
     path.parent.mkdir(parents=True, exist_ok=True)
-    anteriores = {f["ID registro"]: f for f in _leer_csv(path) if f.get("ID registro")}
-    anteriores.update({f["ID registro"]: f for f in registros})
-    temporal = path.with_suffix(".csv.tmp")
-    try:
-        with temporal.open("w", encoding="utf-8-sig", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=COLUMNAS, extrasaction="ignore")
-            writer.writeheader()
-            writer.writerows(sorted(anteriores.values(), key=lambda row: row["ID registro"]))
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(temporal, path)
-    finally:
-        temporal.unlink(missing_ok=True)
+    cerrojo = path.parent / ".csv_historial.lock"
+    with cerrojo.open("a+") as lock:
+        os.chmod(cerrojo, 0o600)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            anteriores = {
+                f["ID registro"]: f for f in _leer_csv(path)
+                if f.get("ID registro")
+            }
+            anteriores.update({f["ID registro"]: f for f in registros})
+            temporal = path.with_suffix(".csv.tmp")
+            try:
+                with temporal.open("w", encoding="utf-8-sig", newline="") as f:
+                    os.chmod(temporal, 0o600)
+                    writer = csv.DictWriter(f, fieldnames=COLUMNAS, extrasaction="ignore")
+                    writer.writeheader()
+                    writer.writerows(
+                        sorted(anteriores.values(), key=lambda row: row["ID registro"])
+                    )
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(temporal, path)
+            finally:
+                temporal.unlink(missing_ok=True)
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 def _subir_firestore(registros: list[dict], proyecto: str) -> None:
