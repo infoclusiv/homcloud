@@ -1,5 +1,36 @@
 # Preferencias globales, descargas y recuperación de homcloud
 
+## Historial permanente y borrado automático de PDFs y temporales
+
+**Nueva política predeterminada:** los archivos de cada lote se conservan **3 días**. Al abrir o usar homcloud, el mantenimiento automático comprueba si hay lotes antiguos; en la app se revisa como máximo cada 12 horas. También se puede configurar otro plazo de 1 a 90 días en **Configuración operativa → Eliminar archivos de lotes después de (días)**. Esta preferencia está compartida en Firestore y no altera la retención manual anterior. Si Cloud Shell está apagado, NO hay un proceso que ejecute limpieza en segundo plano: se realiza al volver a usar la aplicación.
+
+Antes de borrar `uploads/<id>` y `outputs/runs/<id>`, se archiva cada fila del CSV final o parcial en **Firestore compartido** (`homcloud_historial_registros`, un documento por lote y PDF), y en el CSV compacto local `historial/homologaciones_historico.csv`. El CSV se excluye de Git. La tabla histórica conserva fecha, lote, cuenta, nombre de archivo, nivel, prompt, programa origen, programa destino, plan, créditos homologados, estado, duración, modelo y una descripción acotada del error. **No conserva PDFs, carpetas de workers, AHK ni respuestas OpenCode completas**. Los reintentos se registran con su propio identificador de lote para poder auditar cada intento.
+
+Los PDFs que todavía no tienen fila de resultado se archivan como `Error no iniciado` antes de borrar sus originales. Los lotes en ejecución se protegen con su marcador; una marca de un proceso terminado no impide la limpieza al reabrir la aplicación. Si falla Firestore, la lectura del CSV, el guardado del respaldo local o cualquier paso de archivado, **no se borra el lote**. Se reintenta en la siguiente ejecución. La limpieza también retira publicaciones antiguas bajo `static/pdfs`, que pueden mantener ocupado el disco incluso después de eliminar `uploads` debido a los hardlinks.
+
+**Historial de homologaciones:** abre esta página desde el menú lateral, pulsa **Consultar historial completo** y utiliza el buscador o filtro de Estado. Puedes descargar el histórico **completo** o **filtrado** a CSV, con los resultados reunidos desde ambos Cloud Shell cuando usan el mismo proyecto Firestore. Antes de borrar resultados anteriores existentes, pulsa **Importar lotes disponibles** para migrarlos; esto no borra archivos. Para ejecuciones nuevas, el archivo se actualiza al finalizar el lote o reintento. El histórico es por intento, por lo que un PDF puede tener varios registros si fue reintentado.
+
+En la terminal, puedes usar estos comandos opcionales en cada instalación:
+
+```bash
+cd ~/homcloud
+.venv/bin/python -m historial_homologaciones estado
+.venv/bin/python -m historial_homologaciones importar
+# Solo si deseas ejecutar la limpieza manual antes del mantenimiento automático:
+.venv/bin/python -m historial_homologaciones limpiar --dias 3
+```
+
+**Importante sobre datos personales:** los nombres de archivos pueden contener nombres de estudiantes. Este historial almacena esos campos en Firestore y en un CSV local. Restringe permisos del proyecto, no compartas CSV sin autorización y revisa la política institucional de conservación de registros. "Permanente" significa que no aplica la limpieza automática de tres días; no sustituye una política formal de respaldos ni una garantía de conservación indefinida.
+
+**Verificación sin borrar archivos de producción:**
+
+```bash
+cd ~/homcloud
+git pull --ff-only origin main
+.venv/bin/python -m unittest test_historial_homologaciones test_configuracion_global test_integridad_app -v
+bash ./run_cloudshell.sh
+```
+
 ## Configuración compartida entre Cloud Shell
 
 Las dos cuentas utilizan el mismo Firestore que ya sincroniza programas y planes.
