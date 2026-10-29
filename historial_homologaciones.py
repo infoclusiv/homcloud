@@ -106,20 +106,21 @@ def _filas_lote(base: Path, ruta: Path) -> tuple[list[dict], str]:
     # conserva la base, así que no hay que duplicarla en el histórico.
     metadata = _metadatos(ruta)
     if metadata.get("parent_run_id") and (ruta / "metadata_resultado_combinado.json").is_file():
-        parent = base / "outputs" / "runs" / str(metadata["parent_run_id"])
-        # El detalle de un reintento archivado de forma independiente debe
-        # conservar únicamente las filas que cambiaron desde el padre.
-        if parent.is_dir():
-            padre_csv = parent / "resumen_resultados.csv"
-            if padre_csv.is_file():
-                padre = {f.get("Archivo", "").casefold(): f for f in _leer_csv(padre_csv)}
+        # El CSV del reintento puede incluir todas las filas del lote padre.
+        # En el histórico se guardan solamente los PDFs REALMENTE reintentados,
+        # usando los archivos de uploads del propio intento.
+        uploads_reintento = base / "uploads" / ruta.name
+        if uploads_reintento.is_dir() and not uploads_reintento.is_symlink():
+            nombres_reintentados = {
+                f.name.casefold() for f in uploads_reintento.iterdir()
+                if f.is_file() and not f.is_symlink() and f.suffix.lower() == ".pdf"
+            }
+            if nombres_reintentados:
                 filas = [
                     f for f in filas
-                    if f.get("Archivo", "").casefold() not in padre
-                    or (f.get("Estado"), f.get("Créditos homologados"))
-                       != (padre[f.get("Archivo", "").casefold()].get("Estado"),
-                           padre[f.get("Archivo", "").casefold()].get("Créditos homologados"))
+                    if str(f.get("Archivo") or "").casefold() in nombres_reintentados
                 ]
+
     encontrados = {str(f.get("Archivo") or "").casefold() for f in filas}
     uploads = base / "uploads" / ruta.name
     if uploads.is_dir() and not uploads.is_symlink():
