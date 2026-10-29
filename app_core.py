@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from queue import Queue, Empty
 from datetime import datetime
 from dotenv import load_dotenv
+from historial_homologaciones import archivar_lote
 from operativa_compartida import (
     TIPOS as TIPOS_GLOBALES,
     leer_bloque,
@@ -2356,6 +2357,14 @@ def ejecutar_lote_streamlit(
     if not any(f.get("Estado") == "Error timeout lote" for f in filas):
         marca_proceso.unlink(missing_ok=True)
 
+    # El historial se consolida desde el CSV final. Si Firestore no responde,
+    # mantener PDFs y archivos de la tanda: la limpieza de 3 días volverá a
+    # intentar guardar estos registros ANTES de borrar.
+    try:
+        archivar_lote(BASE_DIR, run_id)
+    except (OSError, ValueError, ErrorConfigGlobal) as exc:
+        st.warning(f"Historial pendiente de sincronizar (sin borrar documentos): {exc}")
+
     return resultado_lote
 
 
@@ -3414,6 +3423,12 @@ if 'reintentar_click' in locals() and reintentar_click:
                 resultado_base=resultado_base_antes_reintento,
                 resultado_reintento=resultado_reintento,
             )
+            try:
+                # Reemplaza filas propias de este reintento en el histórico;
+                # evita duplicar las filas heredadas del lote anterior.
+                archivar_lote(BASE_DIR, resultado_combinado["run_id"])
+            except (OSError, ValueError, ErrorConfigGlobal) as exc:
+                st.warning(f"Reintento pendiente de archivar (sin borrar PDFs): {exc}")
 
             st.session_state["ultimo_lote"] = resultado_combinado
             ultimo_lote = resultado_combinado
