@@ -101,6 +101,19 @@ def limpiar_archivos_antiguos(
     borrados = []
     proteccion_inicial = lotes_protegidos(base_dir, protegidos)
     for ruta in candidatos:
+        # Nunca eliminar PDFs originales ni carpetas de resultados sin
+        # confirmar primero que sus filas están en el historial permanente.
+        relativo = ruta.relative_to(base_dir).parts
+        if relativo and relativo[0] in {"uploads", "outputs"}:
+            from historial_homologaciones import archivar_lote
+            run_id = ruta.name
+            if (relativo[0] == "uploads" and len(relativo) == 2) or (
+                relativo[:2] == ("outputs", "runs") and len(relativo) == 3
+            ):
+                try:
+                    archivar_lote(base_dir, run_id)
+                except (OSError, ValueError, RuntimeError):
+                    continue
         # Revalidar modificacion y marca del propio lote sin re-escanear
         # TODOS los lotes en cada iteración.
         if ruta.name in proteccion_inicial:
