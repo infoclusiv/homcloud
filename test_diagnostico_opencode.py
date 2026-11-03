@@ -90,8 +90,8 @@ class DiagnosticoOpenCodeTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             archivo = Path(tmp) / "20261103.log"
             archivo.write_text(
-                "Warning: 429 too many requests for PRIVATE_PERSON_NAME\\n"
-                "error: 503 Service Unavailable\\n",
+                "Warning: 429 too many requests for PRIVATE_PERSON_NAME\n"
+                "error: 503 Service Unavailable\n",
                 encoding="utf-8",
             )
             resultado = resumir_logs_existentes(48, carpeta=Path(tmp))
