@@ -66,6 +66,15 @@ Google Cloud Shell, conserva activadas las protecciones CORS y XSRF.
 
 Referencia: https://docs.cloud.google.com/shell/docs/using-web-preview
 
+## Diagnosticar bloqueos de OpenCode
+
+Si una tanda llega a «OpenCode CLI» y nunca continúa, consulta
+[DIAGNOSTICO_OPENCODE.md](DIAGNOSTICO_OPENCODE.md). Incluye una prueba
+sin PDFs de estudiantes, un resumen privado de logs antiguos, cancelación
+del proceso OpenCode al vencer el timeout del lote y una nueva página
+«Diagnóstico OpenCode» en Streamlit. Antes de reintentar una tanda grande,
+prueba el modelo con 1 archivo y concurrencia de 1.
+
 ## Configuración operativa global
 
 Para compartir los prompts de Pregrado/Posgrado, modelo OpenCode, timeouts, concurrencia y retención, consulta [PREFERENCIAS_Y_RETENCION.md](PREFERENCIAS_Y_RETENCION.md). La publicación inicial de prompts/modelo/timeouts es manual; los archivos locales no se sobrescriben, y cada cuenta puede mantener excepciones locales. Ejecuta `python -m unittest test_configuracion_global test_operativa_compartida test_recuperacion_lotes test_integridad_app -v` tras actualizar el repositorio.
