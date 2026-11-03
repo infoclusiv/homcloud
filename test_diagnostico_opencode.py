@@ -85,6 +85,22 @@ class DiagnosticoOpenCodeTests(unittest.TestCase):
                 "cancelado_por_timeout_del_lote",
             )
 
+    def test_logs_antiguos_no_exponen_texto_privado(self):
+        from diagnostico_opencode import resumir_logs_existentes
+        with TemporaryDirectory() as tmp:
+            archivo = Path(tmp) / "20261103.log"
+            archivo.write_text(
+                "Warning: 429 too many requests for PRIVATE_PERSON_NAME\\n"
+                "error: 503 Service Unavailable\\n",
+                encoding="utf-8",
+            )
+            resultado = resumir_logs_existentes(48, carpeta=Path(tmp))
+            serializado = json.dumps(resultado)
+            self.assertEqual(resultado["archivos_revisados"], 1)
+            self.assertIn("HTTP 429", serializado)
+            self.assertIn("HTTP 5xx", serializado)
+            self.assertNotIn("PRIVATE_PERSON_NAME", serializado)
+
     def test_no_recorre_lotes_no_validos(self):
         with TemporaryDirectory() as tmp:
             with self.assertRaises(ValueError):
