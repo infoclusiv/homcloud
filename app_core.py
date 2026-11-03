@@ -11,10 +11,12 @@ import zipfile
 import unicodedata
 import time
 import signal
+import threading
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from queue import Queue, Empty
 from datetime import datetime
 from dotenv import load_dotenv
+from diagnostico_opencode import ejecutar_monitoreado, resumir_lote
 from historial_homologaciones import archivar_lote
 from operativa_compartida import (
     TIPOS as TIPOS_GLOBALES,
@@ -818,109 +820,44 @@ def terminar_arbol_proceso(proceso: subprocess.Popen, timeout_gracia: float = 5.
 def ejecutar_opencode(
     prompt: str,
     txt_path: Path,
-    modelo_opencode: str = '',
+    modelo_opencode: str = "",
     cwd: Path | None = None,
     timeout_segundos: int = OPENCODE_TIMEOUT_SEGUNDOS_DEFAULT,
+    cancelar: threading.Event | None = None,
 ):
+    """OpenCode con telemetría viva y cancelación del árbol de procesos.
+
+    Los logs originales quedan en la carpeta privada del worker durante
+    la retención del lote; jamás se envía el prompt a los metadatos de estado.
+    """
     opencode_path = shutil.which("opencode")
-
     if not opencode_path:
-        return {
-            "ok": False,
-            "error": "No se encontró el comando opencode en el PATH.",
-        }
-
+        return {"ok": False, "error": "No se encontró opencode en PATH."}
     if not txt_path.exists():
-        return {
-            "ok": False,
-            "error": f"No existe el archivo TXT: {txt_path}",
-        }
-
+        return {"ok": False, "error": f"No existe TXT de extracción: {txt_path}"}
     workdir = cwd or BASE_DIR
     workdir.mkdir(parents=True, exist_ok=True)
-
+    # Los logs de WARN/ERROR pueden revelar un 429, un 503 o un fallo de
+    # autenticación. El nivel DEBUG no se usa para evitar exceso de datos.
     comando = [
-        opencode_path,
-        "run",
-        "--dir",
-        str(workdir),
+        opencode_path, "--print-logs", "--log-level", "WARN",
+        "run", "--dir", str(workdir),
     ]
-
     if modelo_opencode and modelo_opencode.strip():
         comando.extend(["--model", modelo_opencode.strip()])
+    comando.extend([prompt, "--file", str(txt_path)])
 
-    comando.extend([
-        prompt,
-        "--file",
-        str(txt_path),
-    ])
-
-    timeout_segundos = int(timeout_segundos or OPENCODE_TIMEOUT_SEGUNDOS_DEFAULT)
-    inicio = time.time()
-    proceso = None
-
-    try:
-        popen_kwargs = {
-            "cwd": str(workdir),
-            "stdout": subprocess.PIPE,
-            "stderr": subprocess.PIPE,
-            "text": True,
-            "encoding": "utf-8",
-            "errors": "replace",
-        }
-
-        if os.name == "nt":
-            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-        else:
-            popen_kwargs["start_new_session"] = True
-
-        proceso = subprocess.Popen(comando, **popen_kwargs)
-        stdout, stderr = proceso.communicate(timeout=timeout_segundos)
-
-        stdout = quitar_ansi(stdout or "")
-        stderr = quitar_ansi(stderr or "")
-
-        return {
-            "ok": proceso.returncode == 0,
-            "returncode": proceso.returncode,
-            "stdout": stdout,
-            "stderr": stderr,
-            "command": comando,
-            "cwd": str(workdir),
-            "timeout_segundos": timeout_segundos,
-            "duracion_segundos": round(time.time() - inicio, 2),
-            "timeout": False,
-        }
-
-    except subprocess.TimeoutExpired as e:
-        stdout = quitar_ansi(e.stdout or "")
-        stderr = quitar_ansi(e.stderr or "")
-        terminar_arbol_proceso(proceso)
-
-        return {
-            "ok": False,
-            "error": f"OpenCode tardó más de {formatear_duracion(timeout_segundos)} y se canceló por timeout.",
-            "stdout": stdout,
-            "stderr": stderr,
-            "command": comando,
-            "cwd": str(workdir),
-            "timeout_segundos": timeout_segundos,
-            "duracion_segundos": round(time.time() - inicio, 2),
-            "timeout": True,
-        }
-
-    except Exception as e:
-        terminar_arbol_proceso(proceso)
-        return {
-            "ok": False,
-            "error": str(e),
-            "traceback": traceback.format_exc(),
-            "command": comando,
-            "cwd": str(workdir),
-            "timeout_segundos": timeout_segundos,
-            "duracion_segundos": round(time.time() - inicio, 2),
-            "timeout": False,
-        }
+    resultado = ejecutar_monitoreado(
+        comando, cwd=workdir,
+        timeout_segundos=int(timeout_segundos or OPENCODE_TIMEOUT_SEGUNDOS_DEFAULT),
+        cancelar=cancelar,
+        identificador_modelo=modelo_opencode or "Default OpenCode",
+    )
+    resultado["stdout"] = quitar_ansi(resultado.get("stdout") or "")
+    resultado["stderr"] = quitar_ansi(resultado.get("stderr") or "")
+    # NO almacenar en JSON el comando con el prompt completo.
+    resultado["command"] = "opencode run --model <modelo> <prompt privado> --file <TXT>"
+    return resultado
 
 def extraer_campo(texto: str, etiqueta: str, default: str = "No extraído") -> str:
     if not texto:
@@ -1270,6 +1207,7 @@ def procesar_pdf(
     run_outputs_dir: Path,
     progress_callback=None,
     timeout_opencode_segundos: int = OPENCODE_TIMEOUT_SEGUNDOS_DEFAULT,
+    cancelar: threading.Event | None = None,
 ):
     inicio_pdf = time.time()
     nombre_seguro = sanitizar_nombre_archivo(uploaded_file.name)
@@ -1391,6 +1329,7 @@ def procesar_pdf(
         modelo_opencode=modelo_opencode,
         cwd=opencode_work_dir,
         timeout_segundos=timeout_opencode_segundos,
+        cancelar=cancelar,
     )
     guardar_json(opencode_json_path, resultado_opencode)
 
@@ -2053,6 +1992,8 @@ def ejecutar_lote_streamlit(
             estado["Avance PDF"] = f"{avance_pdf * 100:.0f}%"
             estado["Detalle"] = evento.get("detalle", "")
 
+    cancelaciones = {i: threading.Event() for i in range(1, total + 1)}
+
     def ejecutar_job(index: int, job: ArchivoSubidoEnMemoria):
         return procesar_pdf(
             uploaded_file=job,
@@ -2063,6 +2004,7 @@ def ejecutar_lote_streamlit(
             run_outputs_dir=run_outputs_dir,
             progress_callback=crear_callback(index, job.name),
             timeout_opencode_segundos=timeout_opencode_segundos,
+            cancelar=cancelaciones[index],
         )
 
     renderizar_estado()
@@ -2186,6 +2128,9 @@ def ejecutar_lote_streamlit(
 
                 filas_por_indice[index] = fila_timeout
 
+                # Future.cancel() NO detiene hilos ya iniciados. El evento
+                # detiene explícitamente el subproceso OpenCode y sus hijos.
+                cancelaciones[index].set()
                 try:
                     futuro.cancel()
                 except Exception:
