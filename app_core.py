@@ -2018,6 +2018,7 @@ def ejecutar_lote_streamlit(
 
     executor = ThreadPoolExecutor(max_workers=workers)
     futuros = {}
+    futuros_cerrados_por_timeout = []
     pendientes = list(enumerate(pdf_jobs, start=1))
     trabajos_enviados = set()
 
@@ -2119,6 +2120,7 @@ def ejecutar_lote_streamlit(
                     continue
 
                 futuros.pop(futuro, None)
+                futuros_cerrados_por_timeout.append(futuro)
                 indices_cerrados.add(index)
 
                 estado_actual = estado_por_indice.get(index, {})
@@ -2328,9 +2330,14 @@ def ejecutar_lote_streamlit(
     st.session_state["ultimo_lote"] = resultado_lote
     st.session_state.pop("_run_actual_id", None)
 
-    # Un timeout externo puede dejar un worker activo; conservar la marca
-    # hasta que el operador confirme que ya no existen procesos asociados.
-    if not any(f.get("Estado") == "Error timeout lote" for f in filas):
+    # Si el watchdog canceló OpenCode, esperar brevemente a que terminen los
+    # hilos asociados y se liberen sus hijos. Si NO terminan, dejar la marca
+    # para impedir que el mantenedor borre PDFs que todavía están en uso.
+    if futuros_cerrados_por_timeout:
+        _, aun_vivos = wait(futuros_cerrados_por_timeout, timeout=6)
+        if not aun_vivos:
+            marca_proceso.unlink(missing_ok=True)
+    else:
         marca_proceso.unlink(missing_ok=True)
 
     # El historial se consolida desde el CSV final. Si Firestore no responde,
