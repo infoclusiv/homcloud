@@ -1345,7 +1345,12 @@ def procesar_pdf(
     if not resultado_opencode.get("ok"):
         fila["Estado"] = "Error OpenCode"
         fila["Fase actual"] = "Error OpenCode"
-        fila["Error"] = resultado_opencode.get("stderr") or resultado_opencode.get("error", "")
+        clasificacion = (resultado_opencode.get("diagnostico") or {}).get("clasificacion") or ""
+        detalle_ejecucion = resultado_opencode.get("stderr") or resultado_opencode.get("error", "")
+        fila["Error"] = (
+            (f"Diagnóstico: {clasificacion}. " if clasificacion else "")
+            + str(detalle_ejecucion)[:1600]
+        )
         fila["Duración"] = formatear_duracion(time.time() - inicio_pdf)
         limpiar_temporales_raiz_proyecto_opencode()
         reportar("Error OpenCode", 1.0, "OpenCode devolvió error. Revisa STDERR o el JSON técnico.")
@@ -2125,6 +2130,32 @@ def ejecutar_lote_streamlit(
                     fase_actual=estado_actual.get("Fase actual", ""),
                     detalle=estado_actual.get("Detalle", ""),
                 )
+
+                # Leer los METADATOS de OpenCode sin exponer la salida privada.
+                # El diagnóstico también se conserva en el JSON del worker,
+                # incluso si el watchdog cierra la fila antes de recibir datos.
+                stem_timeout = Path(sanitizar_nombre_archivo(nombre_archivo)).stem
+                diagnosticos = [
+                    fila for fila in resumir_lote(BASE_DIR, run_id)
+                    if fila["Worker"] == stem_timeout
+                    or fila["Worker"].startswith(stem_timeout + "__")
+                ]
+                if diagnosticos:
+                    diagnostico = diagnosticos[-1]
+                    motivo = diagnostico.get("Causa detectada") or ""
+                    stdout_bytes = int(diagnostico.get("Salida (bytes)") or 0)
+                    stderr_bytes = int(diagnostico.get("Errores (bytes)") or 0)
+                    inactividad = diagnostico.get("Sin salida (s)")
+                    fila_timeout["Error"] += (
+                        f" | Diagnóstico OpenCode: {motivo}; "
+                        f"stdout={stdout_bytes} bytes, stderr={stderr_bytes} bytes, "
+                        f"segundos sin salida={inactividad}. "
+                        "Consulta la página Diagnóstico OpenCode para más detalles."
+                    )
+                else:
+                    fila_timeout["Error"] += (
+                        " | Sin telemetría OpenCode disponible al alcanzar el timeout."
+                    )
 
                 filas_por_indice[index] = fila_timeout
 
