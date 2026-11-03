@@ -1346,10 +1346,13 @@ def procesar_pdf(
         fila["Estado"] = "Error OpenCode"
         fila["Fase actual"] = "Error OpenCode"
         clasificacion = (resultado_opencode.get("diagnostico") or {}).get("clasificacion") or ""
-        detalle_ejecucion = resultado_opencode.get("stderr") or resultado_opencode.get("error", "")
+        detalle_ejecucion = resultado_opencode.get("error") or ""
+        # stderr puede contener fragmentos de las actas, prompts o cabeceras
+        # del proveedor. Nunca copiarlo al CSV ni a Firestore: solo la clase.
         fila["Error"] = (
             (f"Diagnóstico: {clasificacion}. " if clasificacion else "")
-            + str(detalle_ejecucion)[:1600]
+            + str(detalle_ejecucion)[:400]
+            + " Revisa Diagnóstico OpenCode para detalles técnicos."
         )
         fila["Duración"] = formatear_duracion(time.time() - inicio_pdf)
         limpiar_temporales_raiz_proyecto_opencode()
