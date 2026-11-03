@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import argparse
+from collections import Counter, deque
 import json
 import os
 from pathlib import Path
@@ -258,6 +259,41 @@ def resumir_lote(base_dir: Path, run_id: str) -> list[dict]:
     return filas
 
 
+def resumir_logs_existentes(horas: int = 48, carpeta: Path | None = None) -> dict:
+    """Resume posibles errores del log general de OpenCode sin imprimir datos.
+
+    Puede servir para lotes anteriores a la instalación del monitoreo.
+    Los avisos son indicios, NO una asociación probada con un lote concreto.
+    """
+    if type(horas) is not int or not 1 <= horas <= 168:
+        raise ValueError("El período debe estar entre 1 y 168 horas.")
+    directorio = carpeta or (Path.home() / ".local" / "share" / "opencode" / "log")
+    archivos = sorted(directorio.glob("*.log")) if directorio.is_dir() else (
+        [directorio] if directorio.is_file() else []
+    )
+    umbral = time.time() - horas * 3600
+    categorias = Counter()
+    revisados = 0
+    for archivo in archivos[-20:]:
+        try:
+            if archivo.is_symlink() or archivo.stat().st_mtime < umbral:
+                continue
+            revisados += 1
+            with archivo.open("r", encoding="utf-8", errors="replace") as f:
+                for linea in deque(f, maxlen=20000):
+                    clase = clasificar_error(linea)
+                    if clase not in ("Sin mensajes en stderr", "Sin error reconocible en stderr"):
+                        categorias[clase] += 1
+        except OSError:
+            continue
+    return {
+        "archivos_revisados": revisados,
+        "horas": horas,
+        "indicadores": dict(categorias.most_common()),
+        "nota": "Conteos orientativos; el log podría contener eventos de otros lotes.",
+    }
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Diagnóstico OpenCode sin mostrar textos privados")
     sub = parser.add_subparsers(dest="accion", required=True)
@@ -266,8 +302,13 @@ def main(argv=None) -> int:
     prueba = sub.add_parser("probar")
     prueba.add_argument("--model", required=True)
     prueba.add_argument("--timeout", type=int, default=45)
+    logs = sub.add_parser("logs")
+    logs.add_argument("--horas", type=int, default=48)
     args = parser.parse_args(argv)
     base = Path(__file__).resolve().parent
+    if args.accion == "logs":
+        print(json.dumps(resumir_logs_existentes(args.horas), ensure_ascii=False, indent=2))
+        return 0
     if args.accion == "lote":
         print(json.dumps(resumir_lote(base, args.run_id), ensure_ascii=False, indent=2))
         return 0
