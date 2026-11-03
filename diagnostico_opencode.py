@@ -332,8 +332,11 @@ def main(argv=None) -> int:
             identificador_modelo=args.model,
         )
         diag = resultado.get("diagnostico") or {}
+        respondio = resultado["ok"] and "OK" in (resultado.get("stdout") or "").upper()
         print(json.dumps({
-            "ok": resultado["ok"],
+            "ok": bool(respondio),
+            "proceso_sin_error": resultado["ok"],
+            "respondio_prueba": bool(respondio),
             "codigo_salida": resultado.get("returncode"),
             "duracion_segundos": resultado.get("duracion_segundos"),
             "clasificacion": diag.get("clasificacion"),
@@ -341,7 +344,7 @@ def main(argv=None) -> int:
             "stdout_bytes": diag.get("stdout_bytes"),
             "stderr_bytes": diag.get("stderr_bytes"),
         }, ensure_ascii=False, indent=2))
-        return 0 if resultado["ok"] else 1
+        return 0 if respondio else 1
 
 
 if __name__ == "__main__":
