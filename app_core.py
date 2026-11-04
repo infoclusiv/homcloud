@@ -1770,6 +1770,25 @@ def ejecutar_lote_streamlit(
     Ejecuta un lote completo y renderiza progreso en Streamlit.
     Sirve tanto para el primer procesamiento como para los reintentos.
     """
+    # Preflight: no gastar llamadas a LLMWhisperer ni crear PDFs temporales
+    # cuando la propia CLI ya no admite los modelos gratuitos seleccionados.
+    modelo_preflight = (modelo_opencode or "").strip().lower()
+    if modelo_preflight.startswith("opencode/") and modelo_preflight.endswith("-free"):
+        ejecutable_preflight = shutil.which("opencode")
+        if ejecutable_preflight:
+            try:
+                major_preflight = detectar_version_opencode(ejecutable_preflight)
+            except RuntimeError as exc:
+                st.error(f"No se pudo comprobar OpenCode antes del lote: {exc}")
+                st.stop()
+            if major_preflight == 1:
+                st.error(
+                    "OpenCode 1.x ya no admite los modelos gratuitos opencode/*-free. "
+                    "Actualiza la CLI con 'opencode upgrade --major', comprueba "
+                    "'opencode --version' y ejecuta primero una prueba sencilla "
+                    "sin PDFs. No se inició este lote para evitar consumo innecesario."
+                )
+                st.stop()
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + os.urandom(5).hex()
     st.session_state["_run_actual_id"] = run_id
     run_uploads_dir = UPLOADS_DIR / run_id
