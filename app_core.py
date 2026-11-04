@@ -17,6 +17,7 @@ from queue import Queue, Empty
 from datetime import datetime
 from dotenv import load_dotenv
 from diagnostico_opencode import ejecutar_monitoreado, resumir_lote
+from opencode_compat import crear_comando_opencode, detectar_version_opencode
 from historial_homologaciones import archivar_lote
 from operativa_compartida import (
     TIPOS as TIPOS_GLOBALES,
@@ -837,15 +838,17 @@ def ejecutar_opencode(
         return {"ok": False, "error": f"No existe TXT de extracción: {txt_path}"}
     workdir = cwd or BASE_DIR
     workdir.mkdir(parents=True, exist_ok=True)
-    # Los logs de WARN/ERROR pueden revelar un 429, un 503 o un fallo de
-    # autenticación. El nivel DEBUG no se usa para evitar exceso de datos.
-    comando = [
-        opencode_path, "--print-logs", "--log-level", "WARN",
-        "run", "--dir", str(workdir),
-    ]
-    if modelo_opencode and modelo_opencode.strip():
-        comando.extend(["--model", modelo_opencode.strip()])
-    comando.extend([prompt, "--file", str(txt_path)])
+    # OpenCode v1 ha dejado de ser compatible con algunos modelos gratuitos.
+    # V2 utiliza un servidor privado por worker; la carpeta de trabajo se
+    # establece mediante cwd, sin la antigua opción CLI --dir.
+    try:
+        major_opencode = detectar_version_opencode(opencode_path)
+        comando = crear_comando_opencode(
+            opencode_path, major_opencode, prompt,
+            modelo=modelo_opencode, archivo=txt_path, directorio=workdir,
+        )
+    except (RuntimeError, ValueError) as exc:
+        return {"ok": False, "error": str(exc), "stdout": "", "stderr": ""}
 
     resultado = ejecutar_monitoreado(
         comando, cwd=workdir,
@@ -856,7 +859,7 @@ def ejecutar_opencode(
     resultado["stdout"] = quitar_ansi(resultado.get("stdout") or "")
     resultado["stderr"] = quitar_ansi(resultado.get("stderr") or "")
     # NO almacenar en JSON el comando con el prompt completo.
-    resultado["command"] = "opencode run --model <modelo> <prompt privado> --file <TXT>"
+    resultado["command"] = "opencode run --model <modelo> --file <TXT> <prompt privado>"
     return resultado
 
 def extraer_campo(texto: str, etiqueta: str, default: str = "No extraído") -> str:
