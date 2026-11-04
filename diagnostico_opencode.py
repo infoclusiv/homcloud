@@ -37,6 +37,8 @@ def clasificar_error(stderr: str) -> str:
     """Categoría informativa, sin publicar el cuerpo del mensaje."""
     s = stderr.casefold()
     patrones = (
+        ("Acceso gratuito: falta autenticación o acceso válido", r"(?:free tier can only be used from within opencode|no stored.*credential|console.*authentication|ai\.error\.authentication|sign in to opencode)"),
+        ("Error de opciones de CLI", r"(?:unknown option|unrecognized (?:argument|option)|unexpected (?:argument|option)|invalid (?:argument|option))"),
         ("HTTP 429 / cuota o rate limit", r"(?:\b429\b|ratelimit|rate.limit|too many requests|quota.exceeded|free.?tier.?limit)"),
         ("HTTP 401 / autenticación", r"(?:\b401\b|unauthorized|authentication failed|invalid.api.key)"),
         ("HTTP 403 / acceso restringido", r"(?:\b403\b|forbidden|permission denied|not allowed)"),
@@ -51,6 +53,31 @@ def clasificar_error(stderr: str) -> str:
         if re.search(patron, s):
             return nombre
     return "Sin error reconocible en stderr" if s.strip() else "Sin mensajes en stderr"
+
+
+
+def resumen_error_prueba(stderr: str) -> str:
+    """Detalle de una prueba sintética (prompt OK), con secretos comunes ocultos.
+
+    Los documentos reales nunca pasan por esta ruta. Es una ayuda de
+    diagnóstico: revisar manualmente cualquier mensaje antes de compartirlo.
+    """
+    texto = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", (stderr or ""))
+    texto = re.sub(
+        r"(?i)\b(?:Bearer\s+[A-Za-z0-9._~+/\-=]+|sk-[A-Za-z0-9_-]{8,}|"
+        r"AIza[A-Za-z0-9_-]{16,}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9._-]+)\b",
+        "[SECRETO OCULTO]", texto,
+    )
+    texto = re.sub(
+        r"(?i)\b(authorization|token|api[_-]?key|password|secret)"
+        r"\s*[:=]\s*\S+",
+        r"\1=[OCULTO]", texto,
+    )
+    texto = re.sub(r"https?://\S+", "[URL OCULTA]", texto)
+    texto = re.sub(r"/home/[\w.-]+", "/home/[USUARIO]", texto)
+    texto = re.sub(r"[\w.+-]+@[\w.-]+\.[\w.-]+", "[EMAIL OCULTO]", texto)
+    texto = re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", " ", texto)
+    return texto.strip()[:1200]
 
 
 def _cola(path: Path, max_bytes: int = 65536) -> str:
@@ -413,6 +440,20 @@ def main(argv=None) -> int:
             "stdout_bytes": diag.get("stdout_bytes"),
             "stderr_bytes": diag.get("stderr_bytes"),
         }, ensure_ascii=False, indent=2))
+        if not respondio:
+            detalle = resumen_error_prueba(resultado.get("stderr") or "")
+            if detalle:
+                print(
+                    "Detalle de stderr de la PRUEBA SIN DOCUMENTOS "
+                    "(redactado automáticamente; revísalo antes de compartir):",
+                    flush=True,
+                )
+                print(detalle, flush=True)
+            else:
+                print(
+                    "OpenCode no dejó mensajes de stderr durante esta prueba.",
+                    flush=True,
+                )
         if diag.get("terminacion") == "interrumpido_por_usuario":
             print("Se canceló la prueba; el proceso de OpenCode fue detenido.", flush=True)
             return 130
