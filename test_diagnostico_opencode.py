@@ -33,6 +33,19 @@ class DiagnosticoOpenCodeTests(unittest.TestCase):
             "Sin mensajes en stderr",
         )
 
+    def test_limite_gratuito_se_detecta_explicitamente(self):
+        mensajes = (
+            "Error: Free usage limit reached. Connect a provider or subscribe to OpenCode Go",
+            "AI.Error.QuotaExceeded: Free usage limit reached",
+            "You've used today's free messages",
+        )
+        for mensaje in mensajes:
+            with self.subTest(mensaje=mensaje):
+                self.assertEqual(
+                    clasificar_error(mensaje),
+                    "Límite de uso gratuito de OpenCode",
+                )
+
     def test_error_de_autenticacion_y_cli(self):
         self.assertEqual(
             clasificar_error("OpenCode's free tier can only be used from within OpenCode"),
