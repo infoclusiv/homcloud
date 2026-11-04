@@ -33,6 +33,32 @@ class DiagnosticoOpenCodeTests(unittest.TestCase):
             "Sin mensajes en stderr",
         )
 
+    def test_error_de_autenticacion_y_cli(self):
+        self.assertEqual(
+            clasificar_error("OpenCode's free tier can only be used from within OpenCode"),
+            "Acceso gratuito: falta autenticación o acceso válido",
+        )
+        self.assertEqual(
+            clasificar_error("error: unknown option --standalone"),
+            "Error de opciones de CLI",
+        )
+
+    def test_detalle_de_prueba_cubre_secretos(self):
+        from diagnostico_opencode import resumen_error_prueba
+        entrada = (
+            "Error: Authentication required\\n"
+            "Authorization: Bearer superprivatetoken123\\n"
+            "api_key=sk-abcdefghijk123456\\n"
+            "path=/home/auxiliarregistroycontrol24/secret.json\\n"
+            "email=usuario@empresa.com\\n"
+        )
+        detalle = resumen_error_prueba(entrada)
+        self.assertIn("Authentication required", detalle)
+        self.assertNotIn("superprivatetoken123", detalle)
+        self.assertNotIn("sk-abcdefghijk123456", detalle)
+        self.assertNotIn("/home/auxiliarregistroycontrol24", detalle)
+        self.assertNotIn("usuario@empresa.com", detalle)
+
     def test_proceso_termina_y_registra_estado_sin_prompt(self):
         with TemporaryDirectory() as tmp:
             cwd = Path(tmp) / "outputs" / "runs" / "20261103_123456_abcdef" / "_workers" / "ejemplo" / "opencode_cwd"
