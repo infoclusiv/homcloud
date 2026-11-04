@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import argparse
 from collections import Counter, deque
+from collections.abc import Callable
 import json
 import os
 from pathlib import Path
@@ -113,6 +114,7 @@ def ejecutar_monitoreado(
     cancelar: threading.Event | None = None,
     identificador_modelo: str = "",
     limite_stdout: int = LIMITE_STDOUT,
+    on_progress: Callable[[dict], None] | None = None,
 ) -> dict:
     """Escribe diagnósticos mientras la CLI está activa y termina hijos al cancelar.
 
@@ -140,6 +142,15 @@ def ejecutar_monitoreado(
     anterior_out = anterior_err = 0
     ultima_salida = inicio
     ultima_escritura = 0.0
+
+    def informar() -> None:
+        # Nunca se comparten stdout, stderr, comandos, prompts ni tokens.
+        if on_progress:
+            try:
+                on_progress(dict(estado))
+            except Exception:
+                pass  # Una visualización no debe interrumpir el procesamiento.
+
     try:
         kwargs = {"cwd": str(cwd), "start_new_session": os.name != "nt"}
         if os.name == "nt":
@@ -151,6 +162,7 @@ def ejecutar_monitoreado(
             _guardar_estado(estado_path, estado)
             proceso = subprocess.Popen(comando, stdout=salida, stderr=error, stdin=subprocess.DEVNULL, **kwargs)
             estado["pid"] = proceso.pid
+            informar()
             while True:
                 ahora = time.monotonic()
                 out_size, err_size = _tamano(stdout_path), _tamano(stderr_path)
@@ -176,6 +188,7 @@ def ejecutar_monitoreado(
                 if motivo:
                     estado["terminacion"] = motivo
                     _guardar_estado(estado_path, {**estado, "estado": "cancelando"})
+                    informar()
                     _terminar_grupo(proceso)
                     break
                 if proceso.poll() is not None:
@@ -183,6 +196,7 @@ def ejecutar_monitoreado(
                 if ahora - ultima_escritura >= 5:
                     estado["estado"] = "en_ejecucion"
                     _guardar_estado(estado_path, estado)
+                    informar()
                     ultima_escritura = ahora
                 time.sleep(FRECUENCIA_SEGUNDOS)
             try:
@@ -201,6 +215,7 @@ def ejecutar_monitoreado(
             "clasificacion": clasificar_error(stderr[-65536:]),
         })
         _guardar_estado(estado_path, estado)
+        informar()
         motivo = estado["terminacion"]
         return {
             "ok": codigo == 0 and not motivo, "returncode": codigo,
@@ -212,6 +227,32 @@ def ejecutar_monitoreado(
             "timeout_segundos": timeout_segundos,
             "diagnostico": estado,
             "diagnostico_path": str(estado_path),
+            "cwd": str(cwd),
+        }
+    except KeyboardInterrupt:
+        # Ctrl+C no hereda de Exception: antes dejaba el subproceso vivo.
+        # Capturarlo aquí permite cerrar OpenCode y devolver un diagnóstico
+        # seguro en vez de un traceback y un proceso potencialmente huérfano.
+        if proceso is not None:
+            _terminar_grupo(proceso)
+        estado.update({
+            "estado": "interrumpido",
+            "terminacion": "interrumpido_por_usuario",
+            "codigo_salida": proceso.poll() if proceso is not None else None,
+            "transcurridos_segundos": round(time.monotonic() - inicio, 1),
+            "stdout_bytes": _tamano(stdout_path),
+            "stderr_bytes": _tamano(stderr_path),
+            "clasificacion": clasificar_error(_cola(stderr_path)),
+        })
+        _guardar_estado(estado_path, estado)
+        informar()
+        return {
+            "ok": False, "error": "Prueba interrumpida con Ctrl+C; OpenCode detenido.",
+            "stdout": "", "stderr": "", "returncode": estado["codigo_salida"],
+            "timeout": False, "cancelado_por_lote": False,
+            "duracion_segundos": estado["transcurridos_segundos"],
+            "timeout_segundos": timeout_segundos,
+            "diagnostico": estado, "diagnostico_path": str(estado_path),
             "cwd": str(cwd),
         }
     except Exception as exc:
@@ -327,9 +368,30 @@ def main(argv=None) -> int:
             "run", "--model", args.model,
             "Responde únicamente con la palabra OK.",
         ]
+        print(
+            f"Probando {args.model} con límite de {args.timeout}s. "
+            "Mostraré el estado cada 5 segundos. "
+            "Ctrl+C finalizará la prueba y detendrá OpenCode.",
+            flush=True,
+        )
+
+        def progreso(estado: dict) -> None:
+            transcurrido = estado.get("transcurridos_segundos", 0)
+            clasificacion = estado.get("clasificacion") or "Sin clasificación"
+            print(
+                f"[{transcurrido:>5}s/{args.timeout}s] "
+                f"estado={estado.get('estado')} "
+                f"stdout={estado.get('stdout_bytes', 0)} B "
+                f"stderr={estado.get('stderr_bytes', 0)} B "
+                f"sin_salida={estado.get('segundos_sin_salida', 0)} s "
+                f"señal={clasificacion}",
+                flush=True,
+            )
+
         resultado = ejecutar_monitoreado(
             cmd, root / "opencode_cwd", args.timeout,
             identificador_modelo=args.model,
+            on_progress=progreso,
         )
         diag = resultado.get("diagnostico") or {}
         respondio = resultado["ok"] and "OK" in (resultado.get("stdout") or "").upper()
@@ -344,6 +406,9 @@ def main(argv=None) -> int:
             "stdout_bytes": diag.get("stdout_bytes"),
             "stderr_bytes": diag.get("stderr_bytes"),
         }, ensure_ascii=False, indent=2))
+        if diag.get("terminacion") == "interrumpido_por_usuario":
+            print("Se canceló la prueba; el proceso de OpenCode fue detenido.", flush=True)
+            return 130
         return 0 if respondio else 1
 
 
