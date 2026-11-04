@@ -32,6 +32,45 @@ la fila **antes** del timeout propio de OpenCode.
 - Los logs del worker se eliminan con los archivos temporales del lote
   después del período de retención configurado (3 días por defecto).
 
+## Si la prueba no muestra nada y presionas Ctrl+C
+
+El 4 de noviembre de 2026 las pruebas de DeepSeek y GLM se interrumpieron
+manualmente (el `KeyboardInterrupt` no era la respuesta del modelo).
+Además, el incidente oficial de inferencia gratuita del 3 de noviembre,
+20:28–21:22 UTC, coincide con el inicio del lote problemático de las
+15:47 hora de Colombia. No es prueba de la causa específica, pero sí
+un antecedente externo muy relevante:
+[Estado de OpenCode](https://status.opencode.ai/).
+
+La versión actual muestra un **heartbeat cada cinco segundos**:
+tiempo transcurrido, stdout/stderr en bytes, inactividad y categoría
+del error. Se limita por sí sola al tiempo definido con `--timeout`.
+Si presionas `Ctrl+C`, **cierra el proceso hijo** y devuelve un resumen
+legible en vez de un traceback.
+
+Antes de probar de nuevo:
+
+```bash
+cd ~/homcloud
+git pull --ff-only origin main
+.venv/bin/python -m unittest test_diagnostico_opencode test_integridad_app -v
+# Muestra procesos por nombre, NO argumentos con prompts de estudiantes.
+ps -eo pid,ppid,etime,stat,comm | grep -E '(^ *PID|opencode)'
+# Lista los proveedores autenticados, sin imprimir claves privadas.
+opencode auth list
+.venv/bin/python -m diagnostico_opencode probar \
+  --model opencode/deepseek-v4.1-flash-free --timeout 30
+.venv/bin/python -m diagnostico_opencode probar \
+  --model opencode/glm-5.3-flash-free --timeout 30
+```
+
+No cambies los timeouts del procesamiento diario hasta interpretar los
+resultados de estas pruebas simples. Si ambos modelos expiran con
+stdout=0, stderr=0, comprueba autenticación y acceso a los proveedores;
+el listado de modelos no garantiza que puedas inferir con ellos.
+No elimines archivos de credenciales ni reinicies procesos de un lote
+activo a ciegas.
+
 ## Primer diagnóstico sin consumir un lote de documentos
 
 En el Cloud Shell que presenta el problema:
