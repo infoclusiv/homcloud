@@ -71,6 +71,48 @@ el listado de modelos no garantiza que puedas inferir con ellos.
 No elimines archivos de credenciales ni reinicies procesos de un lote
 activo a ciegas.
 
+## Actualización a OpenCode 2.2.5: el siguiente fallo es distinto
+
+La instalación de `auxiliarregistroycontrol24` ya se actualizó a
+**OpenCode v2.2.5**, pero la prueba de GLM terminó tras **10 segundos
+con código 1, stdout=0 y stderr=161 bytes**. Esto no fue un timeout:
+la CLI terminó con error. El diagnóstico anterior resumía ese stderr como
+«Sin error reconocible» y no permitía identificar la causa exacta.
+
+Un antecedente importante: `opencode auth list` mostró
+**0 credentials**. Hay una incidencia documentada en OpenCode v2:
+sin credenciales guardadas para el proveedor Console, los modelos gratuitos
+pueden fallar con mensajes confusos, y en esos casos el login
+`opencode auth login opencode` solucionó el fallo. Véase
+[issue 52917](https://github.com/anomalyco/opencode/issues/52917)
+y [issue 55619](https://github.com/anomalyco/opencode/issues/55619).
+**Aún no está demostrado que sea el error de este Cloud Shell**:
+es necesario revisar stderr sin compartir secretos.
+
+Procedimiento, sin documentos académicos:
+
+```bash
+cd ~/homcloud
+git pull --ff-only origin main
+.venv/bin/python -m unittest test_diagnostico_opencode -v
+opencode auth login opencode
+opencode auth list
+.venv/bin/python -m diagnostico_opencode probar \
+  --model opencode/glm-5.3-flash-free --timeout 45
+```
+
+Completa el flujo de login en el navegador o terminal. No hay que compartir
+claves, códigos de acceso ni `auth.json`. Si la prueba falla, ahora
+imprime **un fragmento redactado del stderr de la prueba sintética**.
+Este detalle solo se muestra para la instrucción inocua «OK», nunca
+para el procesamiento real de PDFs. Revisa cualquier texto antes de
+copiarlo fuera de Cloud Shell.
+
+Si falla aun autenticado, revisa la opción
+`opencode run --help`, el entorno de proyecto y posibles restricciones
+por IP del proveedor. **No proceses nuevos lotes** hasta ver
+`respondio_prueba: true`.
+
 ## Causa detectada el 4 de noviembre: OpenCode 1.19.5
 
 La cuenta secundaria mostró OpenCode **1.19.5**, y pruebas de 30 segundos
