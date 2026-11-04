@@ -22,6 +22,8 @@ import tempfile
 import threading
 import time
 
+from opencode_compat import crear_comando_opencode, detectar_version_opencode
+
 FRECUENCIA_SEGUNDOS = 2.0
 LIMITE_STDOUT = 8 * 1024 * 1024
 LIMITE_STDERR = 3 * 1024 * 1024
@@ -363,11 +365,16 @@ def main(argv=None) -> int:
         return 2
     with tempfile.TemporaryDirectory(prefix="homcloud_probe_") as temp:
         root = Path(temp)
-        cmd = [
-            comando, "--print-logs", "--log-level", "WARN",
-            "run", "--model", args.model,
-            "Responde únicamente con la palabra OK.",
-        ]
+        try:
+            major = detectar_version_opencode(comando)
+        except RuntimeError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        cmd = crear_comando_opencode(
+            comando, major, "Responde únicamente con la palabra OK.",
+            modelo=args.model, directorio=root / "opencode_cwd",
+        )
+        print(f"OpenCode CLI versión mayor: {major}", flush=True)
         print(
             f"Probando {args.model} con límite de {args.timeout}s. "
             "Mostraré el estado cada 5 segundos. "
