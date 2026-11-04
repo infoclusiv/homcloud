@@ -245,7 +245,7 @@ def ejecutar_monitoreado(
             "clasificacion": clasificar_error(_cola(stderr_path)),
         })
         _guardar_estado(estado_path, estado)
-        informar()
+        # No volver a llamar al callback: podría ser el que recibió Ctrl+C.
         return {
             "ok": False, "error": "Prueba interrumpida con Ctrl+C; OpenCode detenido.",
             "stdout": "", "stderr": "", "returncode": estado["codigo_salida"],
