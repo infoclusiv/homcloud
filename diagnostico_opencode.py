@@ -37,6 +37,7 @@ def clasificar_error(stderr: str) -> str:
     """Categoría informativa, sin publicar el cuerpo del mensaje."""
     s = stderr.casefold()
     patrones = (
+        ("Límite de uso gratuito de OpenCode", r"(?:free usage limit reached|free usage exceeded|you.ve used today.s free messages|free message limit reached|daily free limit|free tier quota exceeded)"),
         ("Acceso gratuito: falta autenticación o acceso válido", r"(?:free tier can only be used from within opencode|no stored.*credential|console.*authentication|ai\.error\.authentication|sign in to opencode)"),
         ("Error de opciones de CLI", r"(?:unknown option|unrecognized (?:argument|option)|unexpected (?:argument|option)|invalid (?:argument|option))"),
         ("HTTP 429 / cuota o rate limit", r"(?:\b429\b|ratelimit|rate.limit|too many requests|quota.exceeded|free.?tier.?limit)"),
