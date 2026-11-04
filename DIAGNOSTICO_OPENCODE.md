@@ -71,6 +71,38 @@ el listado de modelos no garantiza que puedas inferir con ellos.
 No elimines archivos de credenciales ni reinicies procesos de un lote
 activo a ciegas.
 
+## Causa confirmada con autenticación (4 de noviembre de 2026)
+
+Después de actualizar OpenCode a **v2.2.5** e iniciar sesión en
+OpenCode Console, la prueba sintética de GLM terminó con `returncode=1`
+y el stderr explícito:
+
+```text
+Error: Free usage limit reached. Connect a provider or subscribe to OpenCode Go to keep going, or switch models.
+```
+
+Esto confirma que **el servicio remoto rechazó la solicitud por la cuota
+del plan gratuito**, y descarta que la falta de autenticación sea el
+obstáculo inmediato. El mensaje **no permite asegurar** si la cuota se
+gastó legítimamente o existe un fallo de contabilidad; el servicio
+gestiona y reinicia el cupo en el servidor. Hay otros reportes similares:
+[Issue #59387](https://github.com/anomalyco/opencode/issues/59387) y
+[Issue #59026](https://github.com/anomalyco/opencode/issues/59026).
+
+Acciones: no reprocesar lotes grandes; comprobar consumo y ventana de
+restablecimiento en OpenCode Console si están disponibles. Si la cuota
+permanece agotada después del reinicio indicado por el servicio,
+contactar soporte de OpenCode desde la cuenta afectada con el error
+y la versión, **sin incluir claves ni PDFs de estudiantes**. Como
+alternativa, conectar legalmente un proveedor con una cuota independiente
+y aceptada por las políticas de protección de datos, o contratar un plan
+si el costo es viable. No aumentar timeouts: el proveedor rechaza la
+solicitud y no se solucionará esperando más segundos.
+
+La categoría `Límite de uso gratuito de OpenCode` se detectará en las
+próximas ejecuciones y quedará diferenciada de `timeout` o
+`falta de autenticación`.
+
 ## Actualización a OpenCode 2.2.5: el siguiente fallo es distinto
 
 La instalación de `auxiliarregistroycontrol24` ya se actualizó a
