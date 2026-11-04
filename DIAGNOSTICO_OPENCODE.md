@@ -71,6 +71,53 @@ el listado de modelos no garantiza que puedas inferir con ellos.
 No elimines archivos de credenciales ni reinicies procesos de un lote
 activo a ciegas.
 
+## Causa detectada el 4 de noviembre: OpenCode 1.19.5
+
+La cuenta secundaria mostró OpenCode **1.19.5**, y pruebas de 30 segundos
+tanto con `opencode/deepseek-v4.1-flash-free` como con
+`opencode/glm-5.3-flash-free` acabaron en timeout, stdout=0.
+En el repositorio oficial se explicó el 28 de octubre de 2026 que **OpenCode
+v1 ya no admite los modelos gratuitos**:
+[issue #59975](https://github.com/anomalyco/opencode/issues/59975).
+La migración a v2 es prioritaria antes de seguir aumentando timeouts.
+También hay [restricciones confirmadas por IP de red para modelos gratuitos](https://github.com/anomalyco/opencode/issues/56719),
+por lo que v2 puede seguir fallando desde algunas redes de centros de datos.
+
+El comando oficial de actualización mayor de OpenCode v1 es:
+
+```bash
+opencode upgrade --major
+opencode --version  # debe mostrar 2.x
+```
+
+Antes de actualizar, comprueba que no haya un lote activo y conserva una copia
+privada de la configuración y datos locales de autenticación. No compartas
+ficheros `auth.json`, claves ni registros completos.
+
+**homcloud tiene compatibilidad de comandos v1/v2:** detecta la versión,
+y en v2 ejecuta `opencode run --standalone --file <txt> --model <modelo>
+<prompt>` con cwd aislado; no utiliza la antigua opción `--dir`.
+Las pruebas unitarias garantizan la construcción de comandos, pero no
+sustituyen una prueba real del servicio desde Cloud Shell. El modo aislado
+puede requerir más recursos que v1, así que prueba inicialmente con
+**concurrencia de 1**.
+
+Después de actualizar el repositorio y la CLI:
+
+```bash
+cd ~/homcloud
+git pull --ff-only origin main
+.venv/bin/python -m unittest test_opencode_compat test_diagnostico_opencode test_integridad_app -v
+opencode --version
+.venv/bin/python -m diagnostico_opencode probar \
+  --model opencode/glm-5.3-flash-free --timeout 60
+```
+
+No proceses lotes grandes hasta confirmar `respondio_prueba: true`.
+Si v2 no responde y no hay credenciales locales, revisa `opencode auth
+list` y la configuración de acceso con el proveedor antes de concluir
+que se trata de una caída general.
+
 ## Primer diagnóstico sin consumir un lote de documentos
 
 En el Cloud Shell que presenta el problema:
