@@ -101,6 +101,46 @@ class DiagnosticoOpenCodeTests(unittest.TestCase):
             self.assertIn("HTTP 5xx", serializado)
             self.assertNotIn("PRIVATE_PERSON_NAME", serializado)
 
+    def test_heartbeat_solo_datos_tecnicos(self):
+        with TemporaryDirectory() as tmp:
+            cwd = Path(tmp) / "worker" / "opencode_cwd"
+            estados = []
+            resultado = ejecutar_monitoreado(
+                [sys.executable, "-c", "print('OK')"],
+                cwd, timeout_segundos=10, identificador_modelo="demo/test",
+                on_progress=lambda datos: estados.append(datos),
+            )
+            self.assertTrue(resultado["ok"])
+            self.assertGreaterEqual(len(estados), 2)
+            self.assertEqual(estados[0]["modelo"], "demo/test")
+            self.assertNotIn("stdout", estados[0])
+            self.assertNotIn("stderr", estados[0])
+            self.assertEqual(estados[-1]["estado"], "completado")
+
+    def test_ctrl_c_limpia_proceso_y_devuelve_estado(self):
+        import os
+        with TemporaryDirectory() as tmp:
+            cwd = Path(tmp) / "worker" / "opencode_cwd"
+
+            def simular_ctrl_c(_estado):
+                raise KeyboardInterrupt
+
+            resultado = ejecutar_monitoreado(
+                [sys.executable, "-c", "import time; time.sleep(60)"],
+                cwd, timeout_segundos=30, on_progress=simular_ctrl_c,
+            )
+            self.assertFalse(resultado["ok"])
+            self.assertEqual(
+                resultado["diagnostico"]["terminacion"],
+                "interrumpido_por_usuario",
+            )
+            self.assertEqual(resultado["diagnostico"]["estado"], "interrumpido")
+            self.assertIsNotNone(resultado["returncode"])
+            pid = resultado["diagnostico"]["pid"]
+            if os.name != "nt":
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(pid, 0)
+
     def test_no_recorre_lotes_no_validos(self):
         with TemporaryDirectory() as tmp:
             with self.assertRaises(ValueError):
