@@ -12,6 +12,7 @@ import unicodedata
 import time
 import signal
 import threading
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from queue import Queue, Empty
 from datetime import datetime
@@ -3032,6 +3033,51 @@ with st.container():
                 st.success("API key OpenRouter detectada en este Cloud Shell.")
             else:
                 st.warning("Ingresa la API key para activar OpenRouter.")
+            if st.button(
+                "🔌 Probar modelo con texto ficticio",
+                key="probar_openrouter_web",
+                disabled=not (
+                    st.session_state.get("openrouter_api_key_sesion")
+                    or obtener_api_key_openrouter()
+                ) or not modelo_gratuito(modelo_final_openrouter),
+                use_container_width=True,
+                help="Una solicitud gratuita sin datos reales; cuenta dentro de la cuota.",
+            ):
+                with st.spinner("Probando la API con datos ficticios..."):
+                    with tempfile.TemporaryDirectory(prefix="homcloud_openrouter_web_") as temporal:
+                        documento_prueba = Path(temporal) / "prueba.txt"
+                        documento_prueba.write_text(
+                            "Documento FICTICIO para comprobar la conexión.",
+                            encoding="utf-8",
+                        )
+                        prueba = ejecutar_openrouter(
+                            prompt=(
+                                'Responde solamente con el objeto JSON '
+                                '{"estado":"detenido","motivo_detencion":"prueba","registros":[]}'
+                            ),
+                            txt_path=documento_prueba,
+                            modelo=modelo_final_openrouter,
+                            timeout_segundos=30,
+                            api_key=(
+                                st.session_state.get("openrouter_api_key_sesion")
+                                or obtener_api_key_openrouter()
+                            ),
+                        )
+                if prueba.get("ok"):
+                    try:
+                        datos_prueba = extraer_json_desde_respuesta(prueba["stdout"])
+                        json_correcto = datos_prueba.get("estado") == "detenido"
+                    except (ValueError, TypeError):
+                        json_correcto = False
+                    if json_correcto:
+                        st.success("El modelo respondió con un JSON válido.")
+                    else:
+                        st.warning(
+                            "La API respondió, pero este modelo no devolvió el JSON esperado. "
+                            "Prueba otro modelo gratuito."
+                        )
+                else:
+                    st.error(prueba.get("error", "No se pudo conectar con el modelo."))
             st.caption(
                 "OpenRouter gratuito: normalmente 50 solicitudes por día y 20/min; "
                 "los reintentos fallidos también pueden consumir cuota."
