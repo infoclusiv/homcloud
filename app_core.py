@@ -3153,7 +3153,9 @@ with st.container():
                 )
 
         if (modelo_opencode != modelo_local_guardado
-                and (excepciones_cuenta["modelo"] or bloques_globales["modelo"] is None)):
+                and (excepciones_cuenta["modelo"] or bloques_globales["modelo"] is None)
+                and (proveedor_ia != "OpenRouter"
+                     or modelo_gratuito(modelo_opencode.split("::", 1)[-1]))):
             guardar_modelo_opencode_persistente(modelo_opencode)
 
         if modelo_opencode:
@@ -3183,6 +3185,8 @@ with st.container():
             "☁️ Publicar este modelo globalmente",
             key="publicar_modelo_global",
             disabled=not proyectos_globales["modelo"] or bool(errores_globales)
+                     or (proveedor_ia == "OpenRouter"
+                         and not modelo_gratuito(modelo_opencode.split("::", 1)[-1]))
                      or st.session_state["_revision_global_vista_modelo"] != revisiones_globales["modelo"],
         ):
             try:
