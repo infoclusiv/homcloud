@@ -94,6 +94,20 @@ class OpenRouterTests(unittest.TestCase):
             self.assertNotIn("CLAVE_PRIVADA", str(resultado))
             self.assertNotIn("secret", str(resultado))
 
+    def test_no_envia_modelo_batch_al_chat_completions(self):
+        with TemporaryDirectory() as tmp:
+            ruta = Path(tmp) / "prueba.txt"
+            ruta.write_text("TEXTO FICTICIO", encoding="utf-8")
+            with patch("openrouter_cliente.request.urlopen") as llamada:
+                resultado = o.ejecutar_openrouter(
+                    "PROMPT SINTETICO", ruta,
+                    "deepseek/deepseek-v4.1-flash-1017:batch", 20,
+                    api_key="TEST-KEY", permitir_pago=True,
+                )
+            self.assertFalse(resultado["ok"])
+            self.assertIn("API de lotes", resultado["error"])
+            llamada.assert_not_called()
+
     def test_no_permite_modelo_pago_ni_con_llave(self):
         with TemporaryDirectory() as tmp:
             archivo = Path(tmp) / "doc.txt"
