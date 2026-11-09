@@ -2967,11 +2967,15 @@ with st.container():
             key="proveedor_ia_selector",
         )
         if proveedor_ia == "OpenRouter":
-            if "modelos_openrouter_resultado" not in st.session_state:
+            # Forzar una lectura completa al pasar de la versión anterior
+            # (que guardaba solamente modelos :free en session_state).
+            if st.session_state.get("_version_catalogo_openrouter") != "todos_v2":
                 with st.spinner("Cargando catálogo completo de OpenRouter..."):
                     st.session_state["modelos_openrouter_resultado"] = listar_modelos_openrouter()
+                st.session_state["_version_catalogo_openrouter"] = "todos_v2"
             if st.button("🔄 Actualizar catálogo completo", key="actualizar_openrouter_modelos"):
                 st.session_state["modelos_openrouter_resultado"] = listar_modelos_openrouter()
+                st.session_state["_version_catalogo_openrouter"] = "todos_v2"
             catalogo_openrouter = st.session_state["modelos_openrouter_resultado"]
             if not catalogo_openrouter.get("ok"):
                 st.warning(catalogo_openrouter.get("error", "El catálogo no está disponible."))
