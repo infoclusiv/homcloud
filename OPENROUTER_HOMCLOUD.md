@@ -86,6 +86,44 @@ Con OpenRouter seleccionado se mantiene el flujo de LLMWhisperer → TXT → con
 
 Los TXT incluyen potencialmente datos personales académicos y serán transmitidos a OpenRouter y al proveedor seleccionado. Verifica la política institucional, las condiciones de retención de cada proveedor, la privacidad del modelo concreto y la autorización antes de enviar documentos reales.
 
+## Diagnóstico completo por terminal para HTTP 404
+
+Una clave HTTP 200 en `GET /api/v1/key` **no demuestra** que el modelo
+seleccionado tenga un endpoint de inferencia disponible. OpenRouter indica
+que un modelo retirado o sin endpoints puede devolver HTTP 404.
+
+En el Cloud Shell afectado:
+
+```bash
+cd ~/homcloud
+git pull --ff-only origin main
+
+# Elige el ID exacto del modelo que estás utilizando en la interfaz.
+.venv/bin/python -m diagnostico_openrouter_terminal \
+  --modelo openrouter/free --solo-lectura
+
+# Una única inferencia con texto inventado, sin PDFs.
+.venv/bin/python -m diagnostico_openrouter_terminal \
+  --modelo openrouter/free --timeout 30
+```
+
+Para revisar un modelo diferente, sustituye `openrouter/free` por el
+ID exacto del selector. Si es **de pago**, la lectura del catálogo
+no cobra, pero para enviar una petición real debes añadir explícitamente
+`--permitir-pago` (puede generar cargos).
+
+El resultado incluye la autenticación, si el modelo existe en el
+catálogo, el HTTP de consulta de endpoints, cuántos endpoints se
+encontraron, el HTTP de la petición de inferencia y **solo el mensaje
+de error sanitizado**. No imprime API key, encabezados, PDF ni
+respuestas privadas; el prompt es únicamente «Responde solo OK.».
+Si la API no devuelve JSON, el cuerpo del error no se muestra.
+
+Revisa la salida antes de compartirla. Un modelo en el catálogo con
+cero endpoints puede no estar disponible; un HTTP 404 cuando sí hay
+endpoints requiere examinar el texto del error y restricciones de
+privacidad o enrutamiento de la cuenta.
+
 ## Verificar en Cloud Shell
 
 Cuenta auxiliar:
