@@ -304,11 +304,12 @@ _OLD_HEADER_MARKUP = r'''st.markdown(
       <div class=\"header-grid\">
         <div>
           <h1>Procesador por lote</h1>
-          <p>LLMWhisperer + OpenCode CLI · interfaz compacta para configurar, cargar y procesar sin casi hacer scroll.</p>
+          <p>LLMWhisperer + OpenCode / OpenRouter · selecciona el motor de IA y procesa PDFs por lotes.</p>
         </div>
         <div class=\"chip-row\">
           {construir_estado_chip("API keys LLMWhisperer", api_value)}
           {construir_estado_chip("OpenCode", opencode_value)}
+          {construir_estado_chip("OpenRouter", "API key lista" if (obtener_api_key_openrouter() or st.session_state.get("openrouter_api_key_sesion")) else "Sin API key")}
           {construir_estado_chip("Prompts", "Pregrado y Posgrado")}
         </div>
       </div>
@@ -322,10 +323,11 @@ _OLD_HEADER_MARKUP = r'''st.markdown(
 _NEW_HEADER_MARKUP = '''header_html = (
     '<div class="app-shell"><div class="header-grid"><div>'
     '<h1>Procesador por lote</h1>'
-    '<p>LLMWhisperer + OpenCode CLI · interfaz compacta para configurar, cargar y procesar sin casi hacer scroll.</p>'
+    '<p>LLMWhisperer + OpenCode / OpenRouter · selecciona el motor de IA y procesa PDFs por lotes.</p>'
     '</div><div class="chip-row">'
     f'{construir_estado_chip("API keys LLMWhisperer", api_value)}'
     f'{construir_estado_chip("OpenCode", opencode_value)}'
+    f'{construir_estado_chip("OpenRouter", "API key lista" if (obtener_api_key_openrouter() or st.session_state.get("openrouter_api_key_sesion")) else "Sin API key")}'
     f'{construir_estado_chip("Prompts", "Pregrado y Posgrado")}'
     '</div></div></div>'
 )
