@@ -50,7 +50,16 @@ El comando solo emite información diagnóstica segura.
 Interpretación:
 - **HTTP 200:** esa clave existe y OpenRouter la reconoce. Si el modelo
   sigue fallando, prueba un modelo ficticio y consulta su error específico.
-- **HTTP 401:** clave ausente, incorrecta, revocada o caducada.
+  Después de esta corrección, la validación, la prueba sintética, el
+  procesamiento y los reintentos usan la misma clave persistente. La
+  clave recién escrita en el campo contraseña **no se utilizará en el
+  procesamiento hasta pulsar Guardar**.
+  Antes de iniciar un lote OpenRouter se consulta /api/v1/key de nuevo
+  para evitar extracciones innecesarias si la clave ya no funciona.
+- **HTTP 401 en GET /key:** clave ausente, incorrecta, revocada o caducada.
+  Si GET /key devuelve 200 pero POST /chat/completions devuelve 401
+  utilizando la **misma** clave, se debe revisar la autorización de
+  inferencia, el modelo o el proveedor. No sustituir la clave sin evidencia.
   Crea una nueva desde https://openrouter.ai/settings/keys.
 - **HTTP 402:** problema de créditos/saldo; diferente de HTTP 401.
 - **HTTP 429:** límite de solicitudes; diferente de HTTP 401.
