@@ -1999,7 +1999,8 @@ def ejecutar_lote_streamlit(
 
         status_placeholder.info(
             f"🚀 {etiqueta_boton} activo\n\n"
-            f"**PDFs en paralelo configurados:** {max_workers_opencode}\n\n"
+            f"**PDFs en paralelo configurados:** "
+            f"{min(int(max_workers_opencode), 2) if (modelo_opencode or '').startswith('openrouter::') else max_workers_opencode}\n\n"
             f"**Timeout PDF activo:** {formatear_duracion(timeout_pdf_segundos)}\n"
             f"**Timeout OpenCode:** {formatear_duracion(timeout_opencode_segundos)}\n\n"
             f"**Activos:**\n{activos_txt}"
@@ -3339,7 +3340,12 @@ with st.container():
         if disabled:
             st.warning("Antes de iniciar, falta: " + ", ".join(requisitos_faltantes) + ".")
         else:
-            st.markdown('<div class="primary-cta-note">El procesamiento es seguro y todos los archivos se manejan localmente dentro del lote actual.</div>', unsafe_allow_html=True)
+            st.caption(
+                "Los archivos PDF se procesan en este Cloud Shell; "
+                + ("el TXT se envía a OpenRouter y su proveedor de IA."
+                   if proveedor_ia == "OpenRouter"
+                   else "el análisis se envía al proveedor configurado en OpenCode.")
+            )
 
     motor_listo = bool(obtener_api_key_openrouter()) if proveedor_ia == "OpenRouter" else bool(opencode_path)
     permiso_ia = (
