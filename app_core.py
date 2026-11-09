@@ -1822,6 +1822,20 @@ def ejecutar_lote_streamlit(
     # Preflight: no gastar llamadas a LLMWhisperer ni crear PDFs temporales
     # cuando la propia CLI ya no admite los modelos gratuitos seleccionados.
     modelo_preflight = (modelo_opencode or "").strip().lower()
+    if modelo_preflight.startswith("openrouter::"):
+        # La validación anterior a LLMWhisperer evita gastar solicitudes
+        # de extracción con una credencial inválida. Usar la misma clave
+        # que recibirá ejecutar_openrouter en cada worker.
+        validacion_openrouter = verificar_api_key_openrouter(
+            api_key=api_key_openrouter if api_key_openrouter else None,
+        )
+        if not validacion_openrouter.get("ok"):
+            st.error(
+                "No se inició ningún PDF: la API key de OpenRouter no superó "
+                "la verificación previa. "
+                + validacion_openrouter.get("mensaje", "")
+            )
+            st.stop()
     if modelo_preflight.startswith("opencode/") and modelo_preflight.endswith("-free"):
         ejecutable_preflight = shutil.which("opencode")
         if ejecutable_preflight:
@@ -2769,7 +2783,7 @@ st.markdown(
         <div class=\"chip-row\">
           {construir_estado_chip("API keys LLMWhisperer", api_value)}
           {construir_estado_chip("OpenCode", opencode_value)}
-          {construir_estado_chip("OpenRouter", "API key lista" if (obtener_api_key_openrouter() or st.session_state.get("openrouter_api_key_sesion")) else "Sin API key")}
+          {construir_estado_chip("OpenRouter", "API key guardada" if obtener_api_key_openrouter() else "Sin API key")}
           {construir_estado_chip("Prompts", "Pregrado y Posgrado")}
         </div>
       </div>
@@ -3126,20 +3140,16 @@ with st.container():
                 if clave_guardada_entorno:
                     st.caption("✓ Hay una clave configurada (aún no se ha validado).")
                 if st.button(
-                    "🔍 Verificar API key sin consumir tokens",
+                    "🔍 Verificar clave activa sin consumir tokens",
                     key="verificar_key_openrouter",
-                    disabled=not (
-                        st.session_state.get("openrouter_api_key_sesion")
-                        or obtener_api_key_openrouter()
-                    ),
+                    disabled=not obtener_api_key_openrouter(),
                     use_container_width=True,
                     help="Consulta el endpoint oficial /api/v1/key. No procesa PDFs ni genera cargos por tokens.",
                 ):
-                    clave_temporal = st.session_state.get("openrouter_api_key_sesion")
+                    # Comprobar la misma credencial que usarán todas las
+                    # solicitudes, sin priorizar una clave temporal no guardada.
                     with st.spinner("Consultando autenticación de OpenRouter..."):
-                        verificacion = verificar_api_key_openrouter(
-                            api_key=clave_temporal if clave_temporal else None,
-                        )
+                        verificacion = verificar_api_key_openrouter()
                     st.session_state["_diagnostico_key_openrouter"] = verificacion
                 diag_key = st.session_state.get("_diagnostico_key_openrouter")
                 if diag_key:
@@ -3160,18 +3170,24 @@ with st.container():
                             "OpenRouter, pégala arriba y guárdala. "
                             "No es un problema de modelo, timeout ni cuota."
                         )
-            if not (st.session_state.get("openrouter_api_key_sesion") or clave_guardada_entorno):
-                st.warning("Ingresa y guarda una API key para utilizar OpenRouter.")
-            elif clave_guardada_entorno:
-                st.caption("✓ API key disponible en esta cuenta.")
+            if not clave_guardada_entorno:
+                st.warning(
+                    "Ingresa la API key y pulsa Guardar. "
+                    "La clave aún sin guardar no se utilizará para procesar documentos."
+                )
+            else:
+                st.caption("✓ Clave persistente disponible en esta cuenta.")
+            if st.session_state.get("openrouter_api_key_sesion"):
+                st.info(
+                    "Has escrito una nueva clave. Para activarla en las pruebas "
+                    "y el procesamiento, pulsa Guardar API key permanentemente."
+                )
 
             if st.button(
                 "🔌 Probar modelo con texto ficticio",
                 key="probar_openrouter_web",
-                disabled=not (
-                    st.session_state.get("openrouter_api_key_sesion")
-                    or obtener_api_key_openrouter()
-                ) or not modelo_valido(modelo_final_openrouter)
+                disabled=not obtener_api_key_openrouter()
+                or not modelo_valido(modelo_final_openrouter)
                 or (modelo_openrouter_de_pago and not st.session_state.get(
                     f"autorizar_pago_openrouter::{modelo_final_openrouter}", False
                 )),
@@ -3193,10 +3209,9 @@ with st.container():
                             txt_path=documento_prueba,
                             modelo=modelo_final_openrouter,
                             timeout_segundos=30,
-                            api_key=(
-                                st.session_state.get("openrouter_api_key_sesion")
-                                or obtener_api_key_openrouter()
-                            ),
+                            # Usar la clave persistente, idéntica a la
+                            # del endpoint de verificación sin tokens.
+                            api_key=obtener_api_key_openrouter(),
                             permitir_pago=(
                                 modelo_openrouter_de_pago and bool(st.session_state.get(
                                     f"autorizar_pago_openrouter::{modelo_final_openrouter}", False
@@ -3551,9 +3566,8 @@ with st.container():
         if not api_keys:
             requisitos_faltantes.append("configurar API keys de LLMWhisperer")
         if proveedor_ia == "OpenRouter":
-            if not (st.session_state.get("openrouter_api_key_sesion")
-                    or obtener_api_key_openrouter()):
-                requisitos_faltantes.append("configurar la API key de OpenRouter")
+            if not obtener_api_key_openrouter():
+                requisitos_faltantes.append("guardar la API key de OpenRouter")
             if not modelo_valido(modelo_opencode.split("::", 1)[-1]):
                 requisitos_faltantes.append("elegir un modelo válido de OpenRouter")
             if (not modelo_gratuito(modelo_opencode.split("::", 1)[-1])
@@ -3586,7 +3600,7 @@ with st.container():
             )
 
     motor_listo = (
-        bool(st.session_state.get("openrouter_api_key_sesion") or obtener_api_key_openrouter())
+        bool(obtener_api_key_openrouter())
         if proveedor_ia == "OpenRouter" else bool(opencode_path)
     )
     permiso_ia = (
@@ -3787,7 +3801,7 @@ if procesar_click:
         timeout_pdf_segundos=timeout_pdf_segundos,
         timeout_opencode_segundos=timeout_opencode_segundos,
         api_key_openrouter=(
-            st.session_state.get("openrouter_api_key_sesion") or None
+            obtener_api_key_openrouter() if proveedor_ia == "OpenRouter" else None
         ),
         permitir_pago_openrouter=(
             proveedor_ia == "OpenRouter" and not modelo_gratuito(
@@ -3826,7 +3840,7 @@ if 'reintentar_click' in locals() and reintentar_click:
                 timeout_pdf_segundos=timeout_pdf_segundos,
                 timeout_opencode_segundos=timeout_opencode_segundos,
                 api_key_openrouter=(
-                    st.session_state.get("openrouter_api_key_sesion") or None
+                    obtener_api_key_openrouter() if proveedor_ia == "OpenRouter" else None
                 ),
                 permitir_pago_openrouter=(
                     proveedor_ia == "OpenRouter" and not modelo_gratuito(
