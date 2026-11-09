@@ -309,7 +309,7 @@ _OLD_HEADER_MARKUP = r'''st.markdown(
         <div class=\"chip-row\">
           {construir_estado_chip("API keys LLMWhisperer", api_value)}
           {construir_estado_chip("OpenCode", opencode_value)}
-          {construir_estado_chip("OpenRouter", "API key lista" if (obtener_api_key_openrouter() or st.session_state.get("openrouter_api_key_sesion")) else "Sin API key")}
+          {construir_estado_chip("OpenRouter", "API key guardada" if obtener_api_key_openrouter() else "Sin API key")}
           {construir_estado_chip("Prompts", "Pregrado y Posgrado")}
         </div>
       </div>
@@ -327,7 +327,7 @@ _NEW_HEADER_MARKUP = '''header_html = (
     '</div><div class="chip-row">'
     f'{construir_estado_chip("API keys LLMWhisperer", api_value)}'
     f'{construir_estado_chip("OpenCode", opencode_value)}'
-    f'{construir_estado_chip("OpenRouter", "API key lista" if (obtener_api_key_openrouter() or st.session_state.get("openrouter_api_key_sesion")) else "Sin API key")}'
+    f'{construir_estado_chip("OpenRouter", "API key guardada" if obtener_api_key_openrouter() else "Sin API key")}'
     f'{construir_estado_chip("Prompts", "Pregrado y Posgrado")}'
     '</div></div></div>'
 )
