@@ -2748,7 +2748,7 @@ st.markdown(
         <div class=\"chip-row\">
           {construir_estado_chip("API keys LLMWhisperer", api_value)}
           {construir_estado_chip("OpenCode", opencode_value)}
-          {construir_estado_chip("OpenRouter", "API key lista" if obtener_api_key_openrouter() else "Sin API key")}
+          {construir_estado_chip("OpenRouter", "API key lista" if (obtener_api_key_openrouter() or st.session_state.get("openrouter_api_key_sesion")) else "Sin API key")}
           {construir_estado_chip("Prompts", "Pregrado y Posgrado")}
         </div>
       </div>
@@ -2758,7 +2758,10 @@ st.markdown(
 )
 
 if "modelos_opencode_resultado" not in st.session_state:
-    st.session_state.modelos_opencode_resultado = obtener_modelos_opencode(refresh=False)
+    # No ejecutar 'opencode models' si el usuario eligió OpenRouter.
+    st.session_state.modelos_opencode_resultado = {
+        "ok": False, "models": [], "error": "", "consultado": False,
+    }
 
 if "pdf_uploader_version" not in st.session_state:
     st.session_state["pdf_uploader_version"] = 0
@@ -3032,6 +3035,11 @@ with st.container():
                 key="autorizar_datos_openrouter",
             )
         else:
+            if not st.session_state.modelos_opencode_resultado.get("consultado"):
+                st.session_state.modelos_opencode_resultado = obtener_modelos_opencode(refresh=False)
+                st.session_state.modelos_opencode_resultado["consultado"] = True
+                modelos_resultado = st.session_state.modelos_opencode_resultado
+                modelos_detectados = modelos_resultado.get("models", [])
             if st.button("🔄 Actualizar modelos", use_container_width=True,
                          key="btn_actualizar_modelos_rapido"):
                 with st.spinner("Consultando modelos con opencode models --refresh..."):
