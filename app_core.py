@@ -1332,7 +1332,7 @@ def procesar_pdf(
     )
 
     reportar(
-        "OpenCode CLI",
+        "OpenRouter API" if (modelo_opencode or "").startswith("openrouter::") else "OpenCode CLI",
         0.62,
         (f"Consultando OpenRouter API: {modelo_opencode.split('::', 1)[1]}."
          if (modelo_opencode or "").startswith("openrouter::")
@@ -1360,7 +1360,10 @@ def procesar_pdf(
     )
     guardar_json(opencode_json_path, resultado_opencode)
 
-    reportar("Guardando respuesta OpenCode", 0.82, "OpenCode respondió. Guardando stdout y JSON técnico.")
+    reportar(
+        "Guardando respuesta IA", 0.82,
+        "El motor de IA respondió. Guardando texto y JSON técnico."
+    )
 
     respuesta = resultado_opencode.get("stdout", "")
 
@@ -1387,7 +1390,10 @@ def procesar_pdf(
         )
         fila["Duración"] = formatear_duracion(time.time() - inicio_pdf)
         limpiar_temporales_raiz_proyecto_opencode()
-        reportar("Error OpenCode", 1.0, "OpenCode devolvió error. Revisa STDERR o el JSON técnico.")
+        reportar(
+            nombre_error_proveedor, 1.0,
+            "El motor de IA devolvió un error. Revisa su causa o el JSON técnico."
+        )
         return fila
 
     reportar("Interpretando JSON", 0.86, "Validando que OpenCode haya respondido solo JSON estructurado.")
@@ -2007,7 +2013,7 @@ def ejecutar_lote_streamlit(
             f"**PDFs en paralelo configurados:** "
             f"{min(int(max_workers_opencode), 2) if (modelo_opencode or '').startswith('openrouter::') else max_workers_opencode}\n\n"
             f"**Timeout PDF activo:** {formatear_duracion(timeout_pdf_segundos)}\n"
-            f"**Timeout OpenCode:** {formatear_duracion(timeout_opencode_segundos)}\n\n"
+            f"**Timeout de IA:** {formatear_duracion(timeout_opencode_segundos)}\n\n"
             f"**Activos:**\n{activos_txt}"
         )
 
@@ -2982,6 +2988,9 @@ with st.container():
                 visibles_openrouter.insert(0, modelo_previo_openrouter)
             if not visibles_openrouter:
                 visibles_openrouter = [ROUTER_GRATUITO]
+            def _al_cambiar_modelo_openrouter():
+                st.session_state["modelo_manual_openrouter"] = ""
+
             seleccionado_openrouter = st.selectbox(
                 "Modelo OpenRouter",
                 options=visibles_openrouter,
@@ -2990,6 +2999,7 @@ with st.container():
                     if modelo_previo_openrouter in visibles_openrouter else 0
                 ),
                 key="modelo_elegido_openrouter",
+                on_change=_al_cambiar_modelo_openrouter,
                 help="openrouter/free selecciona automáticamente un modelo gratuito.",
             )
             manual_openrouter = st.text_input(
@@ -3116,7 +3126,13 @@ with st.container():
                 )
         else:
             st.info("Se usará el modelo por defecto de OpenCode.")
-        st.caption("Global compartido" if bloques_globales["modelo"] is not None and not excepciones_cuenta["modelo"] else "Configuración local o sesión actual")
+        st.caption(
+            "Modelo global compartido"
+            if (bloques_globales["modelo"] is not None
+                and not excepciones_cuenta["modelo"]
+                and modelo_opencode == modelo_guardado_previo)
+            else "Selección local o temporal; puedes publicarla globalmente"
+        )
         if st.button(
             "☁️ Publicar este modelo globalmente",
             key="publicar_modelo_global",
