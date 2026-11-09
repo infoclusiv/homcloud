@@ -66,6 +66,15 @@ Google Cloud Shell, conserva activadas las protecciones CORS y XSRF.
 
 Referencia: https://docs.cloud.google.com/shell/docs/using-web-preview
 
+## Usar modelos gratuitos de OpenRouter desde la interfaz
+
+Abre [OPENROUTER_HOMCLOUD.md](OPENROUTER_HOMCLOUD.md) para configurar la
+API key por sesión en la web (campo tipo contraseña) o de forma privada
+en `.env`, buscar modelos `:free` en el selector, publicar opcionalmente
+un modelo global y realizar una prueba sin PDFs académicos. OpenRouter
+es independiente de la CLI OpenCode; el catálogo gratuito está sujeto a
+cuotas por día y minuto, sin modelos de pago por accidente.
+
 ## Diagnosticar bloqueos de OpenCode
 
 Si una tanda llega a «OpenCode CLI» y nunca continúa, consulta
