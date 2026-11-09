@@ -144,6 +144,10 @@ def guardar_api_key_openrouter(clave: str) -> None:
     valor = str(clave or "").strip()
     if not valor or len(valor) > 512 or any(x in valor for x in "\r\n\x00\t "):
         raise ValueError("La API key tiene un formato inválido.")
+    if valor.lower().startswith("bearer ") or valor.startswith(("\"", "'")):
+        raise ValueError(
+            "Pega solamente la API key, sin 'Bearer', comillas ni espacios."
+        )
     directorio = CLAVE_LOCAL.parent
     directorio.mkdir(parents=True, exist_ok=True)
     if CLAVE_LOCAL.is_symlink():
@@ -410,7 +414,7 @@ def main(argv=None) -> int:
     import argparse
     import tempfile
     parser = argparse.ArgumentParser(description="Probar conexión OpenRouter sin documentos")
-    parser.add_argument("accion", choices=["probar"])
+    parser.add_argument("accion", choices=["probar", "verificar"])
     parser.add_argument("--model", default=ROUTER_GRATUITO)
     parser.add_argument("--timeout", type=int, default=45)
     parser.add_argument("--permitir-pago", action="store_true")
@@ -422,6 +426,21 @@ def main(argv=None) -> int:
         load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env")
     except ImportError:
         pass
+    if args.accion == "verificar":
+        resultado = verificar_api_key_openrouter()
+        fuentes = fuente_api_key_openrouter()
+        print(json.dumps({
+            "autenticada": resultado["ok"],
+            "http_status": resultado["http_status"],
+            "origen": resultado["origen"],
+            "fuentes": {
+                "archivo_privado": fuentes["archivo_privado"],
+                "entorno_env": fuentes["entorno_env"],
+                "dos_fuentes": fuentes["hay_dos_fuentes"],
+            },
+            "mensaje": resultado["mensaje"],
+        }, ensure_ascii=False, indent=2))
+        return 0 if resultado["ok"] else 1
     if not modelo_valido(args.model):
         print("ERROR: identificador inválido.")
         return 2
