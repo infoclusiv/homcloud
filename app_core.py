@@ -18,6 +18,8 @@ from datetime import datetime
 from dotenv import load_dotenv
 from diagnostico_opencode import ejecutar_monitoreado, resumir_lote
 from opencode_compat import crear_comando_opencode, detectar_version_opencode
+from openrouter_cliente import (ejecutar_openrouter, listar_modelos_openrouter,
+    obtener_api_key_openrouter, modelo_gratuito, ROUTER_GRATUITO)
 from historial_homologaciones import archivar_lote
 from operativa_compartida import (
     TIPOS as TIPOS_GLOBALES,
@@ -831,6 +833,14 @@ def ejecutar_opencode(
     Los logs originales quedan en la carpeta privada del worker durante
     la retención del lote; jamás se envía el prompt a los metadatos de estado.
     """
+    # OpenRouter se integra como motor de inferencia alternativo: no necesita
+    # OpenCode CLI ni altera el contrato JSON que valida Python.
+    if (modelo_opencode or "").startswith("openrouter::"):
+        return ejecutar_openrouter(
+            prompt=prompt, txt_path=txt_path,
+            modelo=modelo_opencode.split("::", 1)[1],
+            timeout_segundos=timeout_segundos, cancelar=cancelar,
+        )
     opencode_path = shutil.which("opencode")
     if not opencode_path:
         return {"ok": False, "error": "No se encontró opencode en PATH."}
@@ -1211,6 +1221,7 @@ def procesar_pdf(
     progress_callback=None,
     timeout_opencode_segundos: int = OPENCODE_TIMEOUT_SEGUNDOS_DEFAULT,
     cancelar: threading.Event | None = None,
+    timeout_pdf_segundos: int = PDF_TIMEOUT_SEGUNDOS_DEFAULT,
 ):
     inicio_pdf = time.time()
     nombre_seguro = sanitizar_nombre_archivo(uploaded_file.name)
@@ -1320,7 +1331,9 @@ def procesar_pdf(
     reportar(
         "OpenCode CLI",
         0.62,
-        f"Ejecutando análisis con OpenCode. Modelo: {modelo_opencode or 'Default OpenCode'}.",
+        (f"Consultando OpenRouter API: {modelo_opencode.split('::', 1)[1]}."
+         if (modelo_opencode or "").startswith("openrouter::")
+         else f"Ejecutando análisis con OpenCode. Modelo: {modelo_opencode or 'Default OpenCode'}."),
     )
 
     inicio_opencode = time.time()
@@ -1331,7 +1344,14 @@ def procesar_pdf(
         txt_path=txt_path,
         modelo_opencode=modelo_opencode,
         cwd=opencode_work_dir,
-        timeout_segundos=timeout_opencode_segundos,
+        # urllib no puede interrumpirse en medio del socket desde otro hilo.
+        # Por seguridad, la llamada OpenRouter vence antes que el watchdog PDF.
+        timeout_segundos=(
+            min(timeout_opencode_segundos,
+                max(5, int(timeout_pdf_segundos - (time.time() - inicio_pdf) - 12)))
+            if (modelo_opencode or "").startswith("openrouter::")
+            else timeout_opencode_segundos
+        ),
         cancelar=cancelar,
     )
     guardar_json(opencode_json_path, resultado_opencode)
@@ -1346,8 +1366,12 @@ def procesar_pdf(
     fila["Respuesta OpenCode"] = str(opencode_txt_path)
 
     if not resultado_opencode.get("ok"):
-        fila["Estado"] = "Error OpenCode"
-        fila["Fase actual"] = "Error OpenCode"
+        nombre_error_proveedor = (
+            "Error OpenRouter" if (modelo_opencode or "").startswith("openrouter::")
+            else "Error OpenCode"
+        )
+        fila["Estado"] = nombre_error_proveedor
+        fila["Fase actual"] = nombre_error_proveedor
         clasificacion = (resultado_opencode.get("diagnostico") or {}).get("clasificacion") or ""
         detalle_ejecucion = resultado_opencode.get("error") or ""
         # stderr puede contener fragmentos de las actas, prompts o cabeceras
@@ -2034,12 +2058,20 @@ def ejecutar_lote_streamlit(
             run_outputs_dir=run_outputs_dir,
             progress_callback=crear_callback(index, job.name),
             timeout_opencode_segundos=timeout_opencode_segundos,
+            timeout_pdf_segundos=timeout_pdf_segundos,
             cancelar=cancelaciones[index],
         )
 
     renderizar_estado()
 
     workers = max(1, min(int(max_workers_opencode or 1), total or 1))
+    if (modelo_opencode or "").startswith("openrouter::"):
+        if workers > 2:
+            st.info(
+                "OpenRouter gratuito: se limita automáticamente a 2 solicitudes "
+                "simultáneas para reducir errores 429 y consumo innecesario de cuota."
+            )
+        workers = min(workers, 2)
 
     executor = ThreadPoolExecutor(max_workers=workers)
     futuros = {}
