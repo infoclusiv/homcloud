@@ -21,7 +21,7 @@ class OpenRouterTests(unittest.TestCase):
         for model in ("", "openai/gpt-4o", "openrouter/auto", "qwen/qwen3:free\n", None):
             self.assertFalse(o.modelo_gratuito(model))
 
-    def test_catalogo_filtra_a_modelos_de_chat_gratuitos(self):
+    def test_catalogo_incluye_modelos_gratis_y_pago_compatibles_con_texto(self):
         data = {"data": [
             {"id": "vendor/llm:free", "architecture": {
                 "input_modalities": ["text"], "output_modalities": ["text"],
@@ -34,7 +34,10 @@ class OpenRouterTests(unittest.TestCase):
             }},
         ]}
         modelos = o.validar_lista_modelos(data)
-        self.assertEqual(modelos, ["openrouter/free", "vendor/llm:free"])
+        self.assertEqual(modelos, ["openrouter/free", "vendor/llm:free", "vendor/paid"])
+        detallados = o.extraer_modelos_openrouter(data)
+        self.assertTrue(next(x for x in detallados if x["id"] == "vendor/llm:free")["gratis"])
+        self.assertFalse(next(x for x in detallados if x["id"] == "vendor/paid")["gratis"])
 
     def test_catalogo_no_manda_api_key(self):
         payload = json.dumps({"data": [{"id": "vendor/free:free"}]}).encode("utf-8")
@@ -101,6 +104,44 @@ class OpenRouterTests(unittest.TestCase):
                 )
             self.assertFalse(resultado["ok"])
             mock.assert_not_called()
+
+    def test_modelo_pago_requiere_autorizacion_y_funciona_con_ella(self):
+        with TemporaryDirectory() as tmp:
+            txt = Path(tmp) / "doc.txt"
+            txt.write_text("Prueba sintética", encoding="utf-8")
+            reply = {"choices": [{"message": {"content": '{"estado":"detenido"}'}}]}
+            with patch("openrouter_cliente.request.urlopen",
+                       return_value=io.BytesIO(json.dumps(reply).encode())) as remote:
+                denied = o.ejecutar_openrouter("PROMPT", txt, "vendor/paid", 8, api_key="KEY")
+                self.assertFalse(denied["ok"])
+                remote.assert_not_called()
+                allowed = o.ejecutar_openrouter(
+                    "PROMPT", txt, "vendor/paid", 8,
+                    api_key="KEY", permitir_pago=True,
+                )
+                self.assertTrue(allowed["ok"])
+                self.assertEqual(json.loads(remote.call_args.args[0].data)["model"], "vendor/paid")
+
+    def test_clave_persistente_privada_y_recuperable(self):
+        with TemporaryDirectory() as tmp:
+            ruta = Path(tmp) / "settings" / "openrouter_api_key.txt"
+            with patch.object(o, "CLAVE_LOCAL", ruta), \
+                 patch.dict(os.environ, {"OPENROUTER_API_KEY": ""}):
+                o.guardar_api_key_openrouter("sk-or-v1-EJEMPLO123")
+                self.assertEqual(o.obtener_api_key_openrouter(), "sk-or-v1-EJEMPLO123")
+                self.assertEqual(ruta.stat().st_mode & 0o777, 0o600)
+                self.assertNotIn("sk-or-v1-EJEMPLO123", str(o.listar_modelos_openrouter.__name__))
+                o.borrar_api_key_openrouter()
+                self.assertEqual(o.obtener_api_key_openrouter(), "")
+
+    def test_precio_catalogo_por_millon_tokens(self):
+        data = {"data": [{
+            "id": "vendor/paid",
+            "pricing": {"prompt": "0.00000035", "completion": "0.000001"},
+        }]}
+        model = next(x for x in o.extraer_modelos_openrouter(data) if x["id"] == "vendor/paid")
+        self.assertAlmostEqual(model["prompt_usd_1m"], 0.35)
+        self.assertAlmostEqual(model["completion_usd_1m"], 1.0)
 
     def test_cancelar_antes_de_enviar_no_consume_cuota(self):
         with TemporaryDirectory() as tmp:
