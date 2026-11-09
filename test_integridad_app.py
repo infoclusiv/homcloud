@@ -69,6 +69,12 @@ class TransformacionStreamlitTests(unittest.TestCase):
         self.assertIn("st.html(header_html)", source)
         self.assertIn('type=["pdf", "xlsx", "xls"]', source)
         self.assertIn('construir_estado_chip("OpenRouter"', source)
+        self.assertIn("pages/05_Programas_y_planes.py", source)
+        self.assertIn("pages/06_Configuracion_operativa.py", source)
+        self.assertNotIn("with col_programas:", source)
+        self.assertIn("st.sidebar.expander", source)
+        self.assertTrue((ROOT / "pages" / "05_Programas_y_planes.py").is_file())
+        self.assertTrue((ROOT / "pages" / "06_Configuracion_operativa.py").is_file())
         compile(source, str(ROOT / "app_core.py"), "exec")
 
 
