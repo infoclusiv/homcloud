@@ -17,9 +17,49 @@ El catálogo procede del endpoint oficial `GET /api/v1/models`; permite TODOS lo
 
 La clave se guarda en `settings/openrouter_api_key.txt` dentro del Cloud Shell que utiliza la web, con permisos `0600`. Se reutiliza al reiniciar el programa. El archivo está ignorado por Git y no se envía a GitHub ni Firestore. Nunca coloques claves en `app.py` ni en ningún archivo versionado.
 
-**Importante:** si tu archivo privado `.env` contiene `OPENROUTER_API_KEY`, esa variable tiene prioridad sobre el archivo nuevo. Las dos cuentas de Cloud Shell tienen entornos independientes, por lo que cada una guarda su propia clave una vez.
+**Importante (corrección de autenticación):** homcloud ahora da prioridad a la clave guardada desde la web en `settings/openrouter_api_key.txt`. Si no existe, usa `OPENROUTER_API_KEY` desde el entorno o el `.env` privado. Esto evita que una clave antigua del entorno anule la que acabas de guardar. Si hay una clave temporal escrita en el campo de la interfaz, esa clave tiene prioridad durante esa sesión, hasta que pulses Guardar.
+
+Las dos cuentas de Cloud Shell tienen entornos independientes, por lo que cada una guarda su propia clave una vez.
 
 Crea tus credenciales en https://openrouter.ai/settings/keys. No compartas claves ni archivos de respaldo que las contengan.
+
+## Diagnosticar errores HTTP 401 sin enviar documentos
+
+OpenRouter publica un endpoint de verificación autenticada `GET /api/v1/key`
+que **no ejecuta inferencia ni consume tokens**. El catálogo
+`GET /api/v1/models` es público: poder listar modelos **no** prueba
+que la clave de usuario sea válida.
+
+En la web: abre **OpenRouter → Credenciales OpenRouter** y pulsa
+**Verificar API key sin consumir tokens**. La interfaz muestra solamente
+HTTP 200/401, estado, y de qué fuente se cargó la clave, sin revelar
+su contenido. Si vas a sustituir una clave inválida, pégala en el campo
+y pulsa **Guardar API key permanentemente en este Cloud Shell**.
+
+Desde el Cloud Shell donde ocurre el error:
+
+```bash
+cd ~/homcloud
+git pull --ff-only origin main
+.venv/bin/python -m openrouter_cliente verificar
+```
+
+Para la cuenta `infoclusiv` la ruta es `~/llmwhisperer-pdf-parser`.
+El comando solo emite información diagnóstica segura.
+
+Interpretación:
+- **HTTP 200:** esa clave existe y OpenRouter la reconoce. Si el modelo
+  sigue fallando, prueba un modelo ficticio y consulta su error específico.
+- **HTTP 401:** clave ausente, incorrecta, revocada o caducada.
+  Crea una nueva desde https://openrouter.ai/settings/keys.
+- **HTTP 402:** problema de créditos/saldo; diferente de HTTP 401.
+- **HTTP 429:** límite de solicitudes; diferente de HTTP 401.
+- **Sin respuesta HTTP:** investigar conexión, DNS o proxy.
+
+En las claves creadas desde OpenRouter normalmente se usa el prefijo
+`sk-or-v1-`. **No pegues** la palabra `Bearer` ni comillas: homcloud
+agrega automáticamente el encabezado HTTP. Nunca compartas la clave
+completa, `.env`, `settings/openrouter_api_key.txt` ni los logs crudos.
 
 ## Interfaz más compacta
 
