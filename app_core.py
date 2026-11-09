@@ -3158,15 +3158,16 @@ with st.container():
                         st.warning("La API respondió, pero el JSON no cumple el contrato.")
                 else:
                     st.error(prueba.get("error", "No se pudo conectar con el modelo."))
-            with st.expander("Privacidad del proveedor", expanded=False):
+            st.checkbox(
+                "Autorizo enviar los TXT de las actas a OpenRouter y al modelo seleccionado",
+                key="autorizar_datos_openrouter",
+                help="Requiere autorización institucional para tratar los datos personales.",
+            )
+            with st.sidebar.expander("🔐 Privacidad de OpenRouter", expanded=False):
                 st.caption(
                     "El TXT extraído se envía a OpenRouter y al proveedor seleccionado. "
                     "Un modelo específico puede tener políticas de retención distintas. "
-                    "Comprueba que tengas autorización institucional."
-                )
-                st.checkbox(
-                    "Autorizo el envío de estos documentos al proveedor seleccionado",
-                    key="autorizar_datos_openrouter",
+                    "Comprueba la autorización institucional antes de procesar actas reales."
                 )
         else:
             if not st.session_state.modelos_opencode_resultado.get("consultado"):
