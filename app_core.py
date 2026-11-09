@@ -2782,6 +2782,10 @@ if "modelos_opencode_resultado" not in st.session_state:
 if "pdf_uploader_version" not in st.session_state:
     st.session_state["pdf_uploader_version"] = 0
 
+# La clave introducida se borra del estado una vez guardada en disco.
+if st.session_state.pop("_limpiar_key_openrouter_siguiente", False):
+    st.session_state.pop("openrouter_api_key_sesion", None)
+
 # Vaciar claves antes de crear los widgets, no después de renderizarlos.
 if st.session_state.pop("_reset_global_controles_pendiente", False):
     for clave in (
@@ -2963,43 +2967,65 @@ with st.container():
             key="proveedor_ia_selector",
         )
         if proveedor_ia == "OpenRouter":
-            st.caption(
-                "Modelos de OpenRouter por API directa. Solo variantes gratuitas "
-                "(:free) y openrouter/free; no se autorizan modelos de pago."
-            )
             if "modelos_openrouter_resultado" not in st.session_state:
-                with st.spinner("Consultando catálogo gratuito de OpenRouter..."):
+                with st.spinner("Cargando catálogo completo de OpenRouter..."):
                     st.session_state["modelos_openrouter_resultado"] = listar_modelos_openrouter()
-            if st.button("🔄 Actualizar modelos gratuitos", key="actualizar_openrouter_modelos"):
+            if st.button("🔄 Actualizar catálogo completo", key="actualizar_openrouter_modelos"):
                 st.session_state["modelos_openrouter_resultado"] = listar_modelos_openrouter()
             catalogo_openrouter = st.session_state["modelos_openrouter_resultado"]
             if not catalogo_openrouter.get("ok"):
-                st.warning(catalogo_openrouter.get("error", "No fue posible leer el catálogo."))
-            lista_openrouter = catalogo_openrouter.get("models") or [ROUTER_GRATUITO]
+                st.warning(catalogo_openrouter.get("error", "El catálogo no está disponible."))
+            detalles_openrouter = {
+                item["id"]: item
+                for item in catalogo_openrouter.get("details", [])
+                if isinstance(item, dict) and modelo_valido(item.get("id"))
+            }
+            lista_openrouter = list(catalogo_openrouter.get("models") or [ROUTER_GRATUITO])
             modelo_previo_openrouter = (
                 modelo_guardado_previo.split("::", 1)[1]
                 if modelo_guardado_previo.startswith("openrouter::")
                 else ROUTER_GRATUITO
             )
+            filtro_tipo_openrouter = st.radio(
+                "Catálogo", options=["Todos", "Gratis", "Pago"],
+                key="filtro_tipo_modelos_openrouter", horizontal=True,
+                label_visibility="collapsed",
+            )
             filtro_openrouter = st.text_input(
-                "🔎 Buscar modelo OpenRouter",
-                placeholder="Ej.: qwen, gemma, llama...",
+                "🔎 Buscar modelo",
+                placeholder="Buscar nombre o ID del modelo...",
                 key="filtro_modelos_openrouter",
             ).strip().casefold()
             visibles_openrouter = [
-                m for m in lista_openrouter if filtro_openrouter in m.casefold()
+                model for model in lista_openrouter
+                if (
+                    filtro_tipo_openrouter == "Todos"
+                    or (filtro_tipo_openrouter == "Gratis" and modelo_gratuito(model))
+                    or (filtro_tipo_openrouter == "Pago" and not modelo_gratuito(model))
+                )
+                and (
+                    filtro_openrouter in model.casefold()
+                    or filtro_openrouter in str(
+                        detalles_openrouter.get(model, {}).get("name") or ""
+                    ).casefold()
+                )
             ]
             actual_openrouter = st.session_state.get(
                 "modelo_elegido_openrouter", modelo_previo_openrouter
             )
-            if modelo_gratuito(actual_openrouter) and actual_openrouter not in visibles_openrouter:
-                visibles_openrouter.insert(0, actual_openrouter)
-            if modelo_gratuito(modelo_previo_openrouter) and modelo_previo_openrouter not in visibles_openrouter:
-                visibles_openrouter.insert(0, modelo_previo_openrouter)
+            for fijo in (modelo_previo_openrouter, actual_openrouter):
+                if modelo_valido(fijo) and fijo not in visibles_openrouter:
+                    visibles_openrouter.insert(0, fijo)
             if not visibles_openrouter:
                 visibles_openrouter = [ROUTER_GRATUITO]
+
             def _al_cambiar_modelo_openrouter():
                 st.session_state["modelo_manual_openrouter"] = ""
+
+            def _etiqueta_openrouter(model_id):
+                info = detalles_openrouter.get(model_id) or {}
+                etiqueta = "Gratis" if modelo_gratuito(model_id) else "Pago"
+                return f"{model_id} · {etiqueta}"
 
             seleccionado_openrouter = st.selectbox(
                 "Modelo OpenRouter",
@@ -3010,47 +3036,90 @@ with st.container():
                 ),
                 key="modelo_elegido_openrouter",
                 on_change=_al_cambiar_modelo_openrouter,
-                help="openrouter/free selecciona automáticamente un modelo gratuito.",
+                format_func=_etiqueta_openrouter,
+                help="Selecciona cualquier modelo compatible con texto, gratuito o de pago.",
             )
-            manual_openrouter = st.text_input(
-                "ID gratuito manual (opcional)",
-                placeholder="proveedor/modelo:free",
-                key="modelo_manual_openrouter",
-                help="Permite seleccionar un modelo :free que no aparezca en el catálogo.",
-            ).strip()
+            with st.expander("Escribir ID de modelo manualmente", expanded=False):
+                manual_openrouter = st.text_input(
+                    "ID del modelo (opcional)",
+                    placeholder="proveedor/modelo",
+                    key="modelo_manual_openrouter",
+                ).strip()
             modelo_final_openrouter = manual_openrouter or seleccionado_openrouter
             modelo_opencode = "openrouter::" + modelo_final_openrouter
-            if not modelo_gratuito(modelo_final_openrouter):
-                st.error("Elige un modelo :free o openrouter/free; no se permiten modelos de pago.")
+            modelo_openrouter_de_pago = not modelo_gratuito(modelo_final_openrouter)
+            if not modelo_valido(modelo_final_openrouter):
+                st.error("Identificador de modelo OpenRouter inválido.")
+            elif modelo_openrouter_de_pago:
+                info_costo = detalles_openrouter.get(modelo_final_openrouter, {})
+                input_cost = info_costo.get("prompt_usd_1m")
+                output_cost = info_costo.get("completion_usd_1m")
+                if input_cost is not None and output_cost is not None:
+                    st.caption(
+                        f"Tarifa publicada: entrada US$ {input_cost:g}/1M tokens "
+                        f"· salida US$ {output_cost:g}/1M tokens. "
+                        "El importe final depende del uso y del proveedor."
+                    )
+                else:
+                    st.caption("Modelo de pago. Consulta el precio vigente en OpenRouter.")
+                st.checkbox(
+                    f"Autorizo el uso facturable de {modelo_final_openrouter}",
+                    key=f"autorizar_pago_openrouter::{modelo_final_openrouter}",
+                    help="Esta autorización se solicita nuevamente al cambiar de modelo.",
+                )
+            else:
+                st.caption("Modelo gratuito: sujeto a cupos y disponibilidad.")
+            st.caption(f"{len(lista_openrouter)} modelos compatibles con texto en el catálogo.")
+
             clave_guardada_entorno = bool(obtener_api_key_openrouter())
             with st.expander(
-                "🔑 API key de OpenRouter",
-                expanded=not clave_guardada_entorno
-                         and not st.session_state.get("openrouter_api_key_sesion"),
+                "🔑 Credenciales OpenRouter" if clave_guardada_entorno
+                else "🔑 Configurar API key OpenRouter",
+                expanded=not clave_guardada_entorno,
             ):
                 st.text_input(
-                    "Pegar API key (solo esta sesión)",
+                    "Nueva API key",
                     type="password",
                     key="openrouter_api_key_sesion",
-                    help="No se guarda en Firestore, en el CSV ni en disco. "
-                         "También puedes configurarla mediante OPENROUTER_API_KEY en .env.",
+                    help="Pégala una vez y guárdala en el archivo privado de este Cloud Shell.",
                 )
-                st.caption("Obtén una clave en https://openrouter.ai/settings/keys")
-            if st.session_state.get("openrouter_api_key_sesion"):
-                st.success("API key cargada temporalmente en esta sesión.")
+                if st.button(
+                    "Guardar API key permanentemente en este Cloud Shell",
+                    key="guardar_key_openrouter_local",
+                    disabled=not st.session_state.get("openrouter_api_key_sesion"),
+                ):
+                    try:
+                        guardar_api_key_openrouter(
+                            st.session_state.get("openrouter_api_key_sesion", "")
+                        )
+                    except (OSError, ValueError) as exc:
+                        st.error(f"No se pudo guardar la clave: {exc}")
+                    else:
+                        st.session_state["_limpiar_key_openrouter_siguiente"] = True
+                        st.rerun()
+                st.caption(
+                    "Se guarda en settings/openrouter_api_key.txt (privado y excluido de Git). "
+                    "No se publica en código, GitHub ni Firestore."
+                )
+                if clave_guardada_entorno:
+                    st.success("API key persistente disponible.")
+            if not (st.session_state.get("openrouter_api_key_sesion") or clave_guardada_entorno):
+                st.warning("Ingresa y guarda una API key para utilizar OpenRouter.")
             elif clave_guardada_entorno:
-                st.success("API key OpenRouter detectada en este Cloud Shell.")
-            else:
-                st.warning("Ingresa la API key para activar OpenRouter.")
+                st.caption("✓ API key disponible en esta cuenta.")
+
             if st.button(
                 "🔌 Probar modelo con texto ficticio",
                 key="probar_openrouter_web",
                 disabled=not (
                     st.session_state.get("openrouter_api_key_sesion")
                     or obtener_api_key_openrouter()
-                ) or not modelo_gratuito(modelo_final_openrouter),
+                ) or not modelo_valido(modelo_final_openrouter)
+                or (modelo_openrouter_de_pago and not st.session_state.get(
+                    f"autorizar_pago_openrouter::{modelo_final_openrouter}", False
+                )),
                 use_container_width=True,
-                help="Una solicitud gratuita sin datos reales; cuenta dentro de la cuota.",
+                help="Envía datos ficticios. Los modelos de pago pueden generar un cargo.",
             ):
                 with st.spinner("Probando la API con datos ficticios..."):
                     with tempfile.TemporaryDirectory(prefix="homcloud_openrouter_web_") as temporal:
@@ -3071,6 +3140,11 @@ with st.container():
                                 st.session_state.get("openrouter_api_key_sesion")
                                 or obtener_api_key_openrouter()
                             ),
+                            permitir_pago=(
+                                modelo_openrouter_de_pago and bool(st.session_state.get(
+                                    f"autorizar_pago_openrouter::{modelo_final_openrouter}", False
+                                ))
+                            ),
                         )
                 if prueba.get("ok"):
                     try:
@@ -3081,24 +3155,19 @@ with st.container():
                     if json_correcto:
                         st.success("El modelo respondió con un JSON válido.")
                     else:
-                        st.warning(
-                            "La API respondió, pero este modelo no devolvió el JSON esperado. "
-                            "Prueba otro modelo gratuito."
-                        )
+                        st.warning("La API respondió, pero el JSON no cumple el contrato.")
                 else:
                     st.error(prueba.get("error", "No se pudo conectar con el modelo."))
-            st.caption(
-                "OpenRouter gratuito: normalmente 50 solicitudes por día y 20/min; "
-                "los reintentos fallidos también pueden consumir cuota."
-            )
-            st.warning(
-                "El texto completo extraído de las actas se enviará a OpenRouter "
-                "y a su proveedor de IA. Comprueba antes las políticas de privacidad."
-            )
-            st.checkbox(
-                "Autorizo el envío de estos documentos al proveedor seleccionado",
-                key="autorizar_datos_openrouter",
-            )
+            with st.expander("Privacidad del proveedor", expanded=False):
+                st.caption(
+                    "El TXT extraído se envía a OpenRouter y al proveedor seleccionado. "
+                    "Un modelo específico puede tener políticas de retención distintas. "
+                    "Comprueba que tengas autorización institucional."
+                )
+                st.checkbox(
+                    "Autorizo el envío de estos documentos al proveedor seleccionado",
+                    key="autorizar_datos_openrouter",
+                )
         else:
             if not st.session_state.modelos_opencode_resultado.get("consultado"):
                 st.session_state.modelos_opencode_resultado = obtener_modelos_opencode(refresh=False)
@@ -3164,7 +3233,7 @@ with st.container():
         if (modelo_opencode != modelo_local_guardado
                 and (excepciones_cuenta["modelo"] or bloques_globales["modelo"] is None)
                 and (proveedor_ia != "OpenRouter"
-                     or modelo_gratuito(modelo_opencode.split("::", 1)[-1]))):
+                     or modelo_valido(modelo_opencode.split("::", 1)[-1]))):
             guardar_modelo_opencode_persistente(modelo_opencode)
 
         if modelo_opencode:
@@ -3195,7 +3264,7 @@ with st.container():
             key="publicar_modelo_global",
             disabled=not proyectos_globales["modelo"] or bool(errores_globales)
                      or (proveedor_ia == "OpenRouter"
-                         and not modelo_gratuito(modelo_opencode.split("::", 1)[-1]))
+                         and not modelo_valido(modelo_opencode.split("::", 1)[-1]))
                      or st.session_state["_revision_global_vista_modelo"] != revisiones_globales["modelo"],
         ):
             try:
@@ -3424,8 +3493,13 @@ with st.container():
             if not (st.session_state.get("openrouter_api_key_sesion")
                     or obtener_api_key_openrouter()):
                 requisitos_faltantes.append("configurar la API key de OpenRouter")
-            if not modelo_gratuito(modelo_opencode.split("::", 1)[-1]):
-                requisitos_faltantes.append("elegir un modelo gratuito válido de OpenRouter")
+            if not modelo_valido(modelo_opencode.split("::", 1)[-1]):
+                requisitos_faltantes.append("elegir un modelo válido de OpenRouter")
+            if (not modelo_gratuito(modelo_opencode.split("::", 1)[-1])
+                    and not st.session_state.get(
+                        f"autorizar_pago_openrouter::{modelo_opencode.split('::', 1)[-1]}", False
+                    )):
+                requisitos_faltantes.append("autorizar el costo del modelo de pago")
             if not st.session_state.get("autorizar_datos_openrouter", False):
                 requisitos_faltantes.append("autorizar el envío de datos al proveedor")
         elif not opencode_path:
@@ -3459,8 +3533,15 @@ with st.container():
         if proveedor_ia == "OpenRouter" else True
     )
     modelo_ia_valido = (
-        modelo_gratuito(modelo_opencode.split("::", 1)[-1])
+        modelo_valido(modelo_opencode.split("::", 1)[-1])
         if proveedor_ia == "OpenRouter" else True
+    )
+    pago_ia_autorizado = (
+        proveedor_ia != "OpenRouter"
+        or modelo_gratuito(modelo_opencode.split("::", 1)[-1])
+        or bool(st.session_state.get(
+            f"autorizar_pago_openrouter::{modelo_opencode.split('::', 1)[-1]}", False
+        ))
     )
     with col_right:
         st.markdown('<div class="panel-title">📊 Resumen del lote</div>', unsafe_allow_html=True)
@@ -3524,7 +3605,7 @@ with st.container():
 
             reintentar_click = st.button(
                 f"🔁 Reintentar {len(filas_error_panel)} PDF(s) con error",
-                disabled=not api_keys or not motor_listo or not permiso_ia or not modelo_ia_valido
+                disabled=not api_keys or not motor_listo or not permiso_ia or not modelo_ia_valido or not pago_ia_autorizado
                          or bool(errores_globales) or bool(_ajustes_globales_obsoletos()),
                 use_container_width=True,
                 key=f"boton_reintentar_panel_{(ultimo_lote or {}).get('run_id','sin_run')}",
@@ -3613,7 +3694,7 @@ if filas_error_destacadas:
     with col_retry_action:
         reintentar_click_destacado = st.button(
             f"🔁 Reintentar ahora {len(filas_error_destacadas)} PDF(s) con error",
-            disabled=not api_keys or not motor_listo or not permiso_ia or not modelo_ia_valido
+            disabled=not api_keys or not motor_listo or not permiso_ia or not modelo_ia_valido or not pago_ia_autorizado
                          or bool(errores_globales) or bool(_ajustes_globales_obsoletos()),
             use_container_width=True,
             type="primary",
@@ -3646,6 +3727,11 @@ if procesar_click:
         timeout_opencode_segundos=timeout_opencode_segundos,
         api_key_openrouter=(
             st.session_state.get("openrouter_api_key_sesion") or None
+        ),
+        permitir_pago_openrouter=(
+            proveedor_ia == "OpenRouter" and not modelo_gratuito(
+                modelo_opencode.split("::", 1)[-1]
+            ) and pago_ia_autorizado
         ),
     )
     lote_ejecutado_en_esta_corrida = True
@@ -3680,6 +3766,11 @@ if 'reintentar_click' in locals() and reintentar_click:
                 timeout_opencode_segundos=timeout_opencode_segundos,
                 api_key_openrouter=(
                     st.session_state.get("openrouter_api_key_sesion") or None
+                ),
+                permitir_pago_openrouter=(
+                    proveedor_ia == "OpenRouter" and not modelo_gratuito(
+                        modelo_opencode.split("::", 1)[-1]
+                    ) and pago_ia_autorizado
                 ),
             )
 
