@@ -258,7 +258,12 @@ def listar_modelos_openrouter(timeout: int = 12) -> dict:
 
 def _clasificar_fallo(codigo: int, detalle: str = "") -> str:
     if codigo == 401:
-        return "OpenRouter rechazó la API key (HTTP 401)."
+        return (
+            "OpenRouter devolvió HTTP 401 al solicitar el modelo. "
+            "Si la misma clave pasa GET /api/v1/key (HTTP 200), "
+            "el motivo puede estar en el acceso de inferencia o el proveedor; "
+            "no significa necesariamente que la clave esté caducada."
+        )
     if codigo == 402:
         return "OpenRouter rechazó el acceso por saldo o facturación (HTTP 402)."
     if codigo == 403:
