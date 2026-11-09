@@ -10,6 +10,8 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
+from decimal import Decimal, InvalidOperation
 import socket
 import time
 from urllib import error, request
@@ -18,32 +20,98 @@ URL_MODELOS = "https://openrouter.ai/api/v1/models"
 URL_CHAT = "https://openrouter.ai/api/v1/chat/completions"
 ROUTER_GRATUITO = "openrouter/free"
 PATRON_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/+-]{1,190}$")
+CLAVE_LOCAL = Path(__file__).resolve().parent / "settings" / "openrouter_api_key.txt"
 LIMITE_TXT = 2_000_000
 MAX_RESPUESTA = 4_000_000
 
 
+def modelo_valido(modelo: str) -> bool:
+    return isinstance(modelo, str) and PATRON_ID.fullmatch(modelo) is not None
+
+
 def modelo_gratuito(modelo: str) -> bool:
-    return (
-        isinstance(modelo, str)
-        and PATRON_ID.fullmatch(modelo) is not None
-        and (modelo.endswith(":free") or modelo == ROUTER_GRATUITO)
+    return modelo_valido(modelo) and (
+        modelo.endswith(":free") or modelo == ROUTER_GRATUITO
     )
 
 
 def obtener_api_key_openrouter() -> str:
-    return os.environ.get("OPENROUTER_API_KEY", "").strip()
+    """Prioridad: variable del entorno, después archivo privado por Cloud Shell."""
+    env = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if env:
+        return env
+    try:
+        if CLAVE_LOCAL.is_symlink() or not CLAVE_LOCAL.is_file():
+            return ""
+        return CLAVE_LOCAL.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def guardar_api_key_openrouter(clave: str) -> None:
+    """Guarda una vez, solo en este Cloud Shell; nunca en código/Git/Firestore."""
+    valor = str(clave or "").strip()
+    if not valor or len(valor) > 512 or any(x in valor for x in "\r\n\x00\t "):
+        raise ValueError("La API key tiene un formato inválido.")
+    directorio = CLAVE_LOCAL.parent
+    directorio.mkdir(parents=True, exist_ok=True)
+    if CLAVE_LOCAL.is_symlink():
+        raise ValueError("La ruta de la clave no puede ser un enlace simbólico.")
+    import tempfile
+    temporal = None
+    try:
+        fd, nombre = tempfile.mkstemp(prefix=".openrouter_key_", dir=str(directorio))
+        temporal = Path(nombre)
+        os.fchmod(fd, stat.S_IRUSR | stat.S_IWUSR)
+        with os.fdopen(fd, "w", encoding="utf-8") as archivo:
+            archivo.write(valor + "\n")
+        os.replace(temporal, CLAVE_LOCAL)
+        os.chmod(CLAVE_LOCAL, stat.S_IRUSR | stat.S_IWUSR)
+    finally:
+        if temporal:
+            temporal.unlink(missing_ok=True)
+
+
+def borrar_api_key_openrouter() -> None:
+    if CLAVE_LOCAL.is_symlink():
+        raise ValueError("La ruta de la clave no puede ser un enlace simbólico.")
+    CLAVE_LOCAL.unlink(missing_ok=True)
+
+
+def _precio_por_millon(item: dict, clave: str) -> float | None:
+    pricing = item.get("pricing") or {}
+    if not isinstance(pricing, dict):
+        return None
+    try:
+        value = Decimal(str(pricing.get(clave)))
+        if not value.is_finite() or value < 0:
+            return None
+        return float(value * Decimal(1_000_000))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
 
 
 def validar_lista_modelos(datos: dict) -> list[str]:
+    """Retiene los IDs existentes, tanto gratuitos como de pago, si usan texto."""
+    return [modelo["id"] for modelo in extraer_modelos_openrouter(datos)]
+
+
+def extraer_modelos_openrouter(datos: dict) -> list[dict]:
     if not isinstance(datos, dict) or not isinstance(datos.get("data"), list):
         raise ValueError("Catálogo OpenRouter con formato inesperado.")
-    modelos = [ROUTER_GRATUITO]
+    modelos = [{
+        "id": ROUTER_GRATUITO,
+        "name": "Modelo gratuito automático",
+        "gratis": True, "prompt_usd_1m": 0, "completion_usd_1m": 0,
+        "context_length": None,
+    }]
+    vistos = {ROUTER_GRATUITO}
     for item in datos["data"]:
         if not isinstance(item, dict):
             continue
         identificador = item.get("id")
         arquitectura = item.get("architecture")
-        if not modelo_gratuito(identificador):
+        if not modelo_valido(identificador) or identificador in vistos:
             continue
         if isinstance(arquitectura, dict):
             entrada = arquitectura.get("input_modalities")
@@ -52,12 +120,23 @@ def validar_lista_modelos(datos: dict) -> list[str]:
                 continue
             if isinstance(salida, list) and "text" not in salida:
                 continue
-        modelos.append(identificador)
-    return sorted(set(modelos), key=lambda x: (x != ROUTER_GRATUITO, x.lower()))
+        vistos.add(identificador)
+        modelos.append({
+            "id": identificador,
+            "name": str(item.get("name") or identificador)[:180],
+            "gratis": modelo_gratuito(identificador),
+            "prompt_usd_1m": _precio_por_millon(item, "prompt"),
+            "completion_usd_1m": _precio_por_millon(item, "completion"),
+            "context_length": (
+                item.get("context_length")
+                if isinstance(item.get("context_length"), int) else None
+            ),
+        })
+    return sorted(modelos, key=lambda m: (m["id"] != ROUTER_GRATUITO, m["id"].lower()))
 
 
 def listar_modelos_openrouter(timeout: int = 12) -> dict:
-    """Catálogo público; no requiere ni transmite la clave de API."""
+    """Catálogo público con nombres, precios y contexto para la interfaz."""
     consulta = request.Request(
         URL_MODELOS,
         headers={"Accept": "application/json", "User-Agent": "homcloud/1.0"},
@@ -66,11 +145,18 @@ def listar_modelos_openrouter(timeout: int = 12) -> dict:
     try:
         with request.urlopen(consulta, timeout=timeout) as respuesta:
             datos = json.load(respuesta)
-        return {"ok": True, "models": validar_lista_modelos(datos), "error": ""}
+        modelos = extraer_modelos_openrouter(datos)
+        return {
+            "ok": True, "models": [m["id"] for m in modelos],
+            "details": modelos, "error": "",
+        }
     except (OSError, ValueError, TypeError) as exc:
         return {
-            "ok": False,
-            "models": [ROUTER_GRATUITO],
+            "ok": False, "models": [ROUTER_GRATUITO],
+            "details": [{
+                "id": ROUTER_GRATUITO, "name": "Modelo gratuito automático",
+                "gratis": True, "prompt_usd_1m": 0, "completion_usd_1m": 0,
+            }],
             "error": f"No se pudo consultar el catálogo de OpenRouter: {type(exc).__name__}.",
         }
 
@@ -119,8 +205,9 @@ def ejecutar_openrouter(
     timeout_segundos: int,
     cancelar=None,
     api_key: str | None = None,
+    permitir_pago: bool = False,
 ) -> dict:
-    """Inferencia de texto: sin CLI, sin cobro posible por selección de pago.
+    """Inferencia por API, con autorización explícita para modelos de pago.
 
     El timeout del socket impone el límite de la llamada. Una cancelación
     externa puede observarse antes/después de la solicitud, pero urllib no
@@ -147,8 +234,10 @@ def ejecutar_openrouter(
             "duracion_segundos": round(time.monotonic() - inicio, 2),
         }
 
-    if not modelo_gratuito(ident):
-        return fallo("Solo se admiten modelos gratuitos terminados en :free o openrouter/free.")
+    if not modelo_valido(ident):
+        return fallo("El identificador del modelo OpenRouter no es válido.")
+    if not modelo_gratuito(ident) and not permitir_pago:
+        return fallo("El modelo de pago no está autorizado para esta solicitud.")
     clave = (api_key if api_key is not None else obtener_api_key_openrouter()).strip()
     if not clave:
         return fallo("Configura OPENROUTER_API_KEY en el .env privado de este Cloud Shell.")
@@ -233,6 +322,7 @@ def main(argv=None) -> int:
     parser.add_argument("accion", choices=["probar"])
     parser.add_argument("--model", default=ROUTER_GRATUITO)
     parser.add_argument("--timeout", type=int, default=45)
+    parser.add_argument("--permitir-pago", action="store_true")
     args = parser.parse_args(argv)
     if not 5 <= args.timeout <= 180:
         parser.error("timeout entre 5 y 180 segundos")
@@ -241,8 +331,11 @@ def main(argv=None) -> int:
         load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env")
     except ImportError:
         pass
-    if not modelo_gratuito(args.model):
-        print("ERROR: Solo se permiten modelos :free u openrouter/free.")
+    if not modelo_valido(args.model):
+        print("ERROR: identificador inválido.")
+        return 2
+    if not modelo_gratuito(args.model) and not args.permitir_pago:
+        print("ERROR: para un modelo de pago añade --permitir-pago.")
         return 2
     if not obtener_api_key_openrouter():
         print("ERROR: falta OPENROUTER_API_KEY en el entorno o .env.")
@@ -257,7 +350,7 @@ def main(argv=None) -> int:
         resultado = ejecutar_openrouter(
             'Devuelve SOLO un objeto JSON con {"estado": "detenido", '
             '"motivo_detencion": "prueba", "registros": []}.',
-            archivo, args.model, args.timeout,
+            archivo, args.model, args.timeout, permitir_pago=args.permitir_pago,
         )
     valido = False
     if resultado.get("ok"):
