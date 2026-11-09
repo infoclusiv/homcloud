@@ -73,6 +73,12 @@ class TransformacionStreamlitTests(unittest.TestCase):
         self.assertIn("pages/06_Configuracion_operativa.py", source)
         self.assertNotIn("with col_programas:", source)
         self.assertIn("st.sidebar.expander", source)
+        self.assertIn("validacion_openrouter = verificar_api_key_openrouter(", source)
+        self.assertIn("api_key=obtener_api_key_openrouter()", source)
+        self.assertNotIn(
+            'st.session_state.get("openrouter_api_key_sesion") or obtener_api_key_openrouter()',
+            source,
+        )
         self.assertTrue((ROOT / "pages" / "05_Programas_y_planes.py").is_file())
         self.assertTrue((ROOT / "pages" / "06_Configuracion_operativa.py").is_file())
         compile(source, str(ROOT / "app_core.py"), "exec")
