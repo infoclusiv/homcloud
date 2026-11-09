@@ -61,3 +61,6 @@ settings/.pdf_link_secret
 
 # Permanent local compact homologation history and maintenance receipts
 historial/
+
+# Privado: API key persistente de OpenRouter por cuenta Cloud Shell
+settings/openrouter_api_key.txt
