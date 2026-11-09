@@ -61,6 +61,14 @@ class TransformacionStreamlitTests(unittest.TestCase):
         nuevo = 'with st.expander("Ver detalle del último procesamiento", expanded=True):'
         self.assertEqual(source.count(antiguo), 1)
         source = source.replace(antiguo, nuevo, 1)
+        # El código real aplica DESPUÉS el parche de Excel. Comprobar la
+        # cadena completa evita que un cambio de encabezado rompa Streamlit
+        # aun cuando el módulo compilaba en las pruebas parciales.
+        from excel_runtime_patch import aplicar_soporte_excel
+        source = aplicar_soporte_excel(source)
+        self.assertIn("st.html(header_html)", source)
+        self.assertIn('type=["pdf", "xlsx", "xls"]', source)
+        self.assertIn('construir_estado_chip("OpenRouter"', source)
         compile(source, str(ROOT / "app_core.py"), "exec")
 
 
