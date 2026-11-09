@@ -1,8 +1,7 @@
-"""Acceso directo y gratuito a OpenRouter para homologaciones de homcloud.
+"""Cliente OpenRouter de homcloud, para modelos gratuitos y de pago.
 
-No exige el ejecutable opencode. No registra API keys ni los TXT en logs.
-Solo admite IDs :free u openrouter/free, sin riesgo de cobros por modelos pagos.
-La salida conserva el formato de ejecutar_opencode para reutilizar AHK/CSV.
+No requiere CLI, no registra claves ni los TXT en mensajes de diagnóstico.
+Los modelos facturables requieren consentimiento explícito del usuario.
 """
 from __future__ import annotations
 
@@ -18,6 +17,7 @@ from urllib import error, request
 
 URL_MODELOS = "https://openrouter.ai/api/v1/models"
 URL_CHAT = "https://openrouter.ai/api/v1/chat/completions"
+URL_CLAVE = "https://openrouter.ai/api/v1/key"
 ROUTER_GRATUITO = "openrouter/free"
 PATRON_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/+-]{1,190}$")
 CLAVE_LOCAL = Path(__file__).resolve().parent / "settings" / "openrouter_api_key.txt"
@@ -35,17 +35,108 @@ def modelo_gratuito(modelo: str) -> bool:
     )
 
 
-def obtener_api_key_openrouter() -> str:
-    """Prioridad: variable del entorno, después archivo privado por Cloud Shell."""
-    env = os.environ.get("OPENROUTER_API_KEY", "").strip()
-    if env:
-        return env
+def _leer_clave_privada_local() -> str:
     try:
         if CLAVE_LOCAL.is_symlink() or not CLAVE_LOCAL.is_file():
             return ""
         return CLAVE_LOCAL.read_text(encoding="utf-8").strip()
     except OSError:
         return ""
+
+
+def fuente_api_key_openrouter() -> dict:
+    """Solo metadatos no sensibles; nunca devuelve una credencial.
+
+    La clave guardada desde la interfaz es la opción preferida. El entorno
+    o .env sigue sirviendo de respaldo para instalaciones antiguas.
+    """
+    guardada = bool(_leer_clave_privada_local())
+    entorno = bool(os.environ.get("OPENROUTER_API_KEY", "").strip())
+    return {
+        "origen": "archivo_privado" if guardada else (
+            "entorno_env" if entorno else "no_configurada"
+        ),
+        "archivo_privado": guardada,
+        "entorno_env": entorno,
+        "hay_dos_fuentes": guardada and entorno,
+    }
+
+
+def obtener_api_key_openrouter() -> str:
+    """Prioriza la última clave guardada en la web; usa .env como respaldo."""
+    return _leer_clave_privada_local() or os.environ.get(
+        "OPENROUTER_API_KEY", ""
+    ).strip()
+
+
+def verificar_api_key_openrouter(
+    api_key: str | None = None,
+    timeout: int = 12,
+) -> dict:
+    """Consulta GET /api/v1/key sin gastar tokens ni revelar la clave.
+
+    Devuelve exclusivamente estado, código HTTP, origen y datos de acceso
+    no identificadores. No guarda cuerpos de error del servidor.
+    """
+    clave = (api_key if api_key is not None else obtener_api_key_openrouter()).strip()
+    origen = "clave_de_sesion" if api_key is not None else fuente_api_key_openrouter()["origen"]
+    if not clave:
+        return {
+            "ok": False, "http_status": None, "origen": origen,
+            "mensaje": "No hay una API key configurada.",
+        }
+    solicitud = request.Request(
+        URL_CLAVE,
+        headers={
+            "Authorization": f"Bearer {clave}",
+            "Accept": "application/json",
+            "User-Agent": "homcloud/1.0",
+        },
+        method="GET",
+    )
+    try:
+        with request.urlopen(solicitud, timeout=max(3, int(timeout))) as resp:
+            status = resp.getcode() if hasattr(resp, "getcode") else 200
+            data = json.load(resp)
+        if not isinstance(data, dict) or not isinstance(data.get("data"), dict):
+            return {
+                "ok": False, "http_status": status, "origen": origen,
+                "mensaje": "OpenRouter respondió, pero el formato de validación es inesperado.",
+            }
+        info = data["data"]
+        resultado = {
+            "ok": True, "http_status": status, "origen": origen,
+            "mensaje": "La API key está activa y OpenRouter la reconoce.",
+        }
+        for nombre in ("is_free_tier", "limit_remaining"):
+            if isinstance(info.get(nombre), (bool, int, float)) and not (
+                nombre == "limit_remaining" and isinstance(info.get(nombre), bool)
+            ):
+                resultado[nombre] = info[nombre]
+        return resultado
+    except error.HTTPError as exc:
+        return {
+            "ok": False, "http_status": exc.code, "origen": origen,
+            "mensaje": (
+                "OpenRouter no reconoce esta clave o fue revocada (HTTP 401)."
+                if exc.code == 401 else _clasificar_fallo(exc.code)
+            ),
+        }
+    except (TimeoutError, socket.timeout):
+        return {
+            "ok": False, "http_status": None, "origen": origen,
+            "mensaje": "Tiempo de conexión agotado al validar la clave.",
+        }
+    except error.URLError:
+        return {
+            "ok": False, "http_status": None, "origen": origen,
+            "mensaje": "No fue posible contactar con OpenRouter.",
+        }
+    except (OSError, ValueError, TypeError):
+        return {
+            "ok": False, "http_status": None, "origen": origen,
+            "mensaje": "No se pudo validar la clave por un error de respuesta o conexión.",
+        }
 
 
 def guardar_api_key_openrouter(clave: str) -> None:
@@ -240,7 +331,7 @@ def ejecutar_openrouter(
         return fallo("El modelo de pago no está autorizado para esta solicitud.")
     clave = (api_key if api_key is not None else obtener_api_key_openrouter()).strip()
     if not clave:
-        return fallo("Configura OPENROUTER_API_KEY en el .env privado de este Cloud Shell.")
+        return fallo("No hay API key OpenRouter configurada en esta sesión ni en el archivo privado.")
     if cancelar is not None and cancelar.is_set():
         return fallo("Solicitud cancelada antes de iniciar.", timeout=True)
     try:
