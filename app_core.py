@@ -1822,6 +1822,15 @@ def ejecutar_lote_streamlit(
     # Preflight: no gastar llamadas a LLMWhisperer ni crear PDFs temporales
     # cuando la propia CLI ya no admite los modelos gratuitos seleccionados.
     modelo_preflight = (modelo_opencode or "").strip().lower()
+    if modelo_preflight.startswith("openrouter::") and modelo_preflight.endswith(":batch"):
+        st.error(
+            "El modelo seleccionado usa OpenRouter Batch API asíncrona. "
+            "Homcloud todavía ejecuta documentos con Chat Completions. "
+            "No se iniciará ningún PDF con este modelo. "
+            "Pruébalo por terminal con 'python -m diagnostico_openrouter_batch' "
+            "o elige la versión normal sin :batch."
+        )
+        st.stop()
     if modelo_preflight.startswith("openrouter::"):
         # La validación anterior a LLMWhisperer evita gastar solicitudes
         # de extracción con una credencial inválida. Usar la misma clave
@@ -3073,6 +3082,13 @@ with st.container():
             modelo_openrouter_de_pago = not modelo_gratuito(modelo_final_openrouter)
             if not modelo_valido(modelo_final_openrouter):
                 st.error("Identificador de modelo OpenRouter inválido.")
+            elif modelo_final_openrouter.endswith(":batch"):
+                st.warning(
+                    "Este modelo usa la API asíncrona de OpenRouter. "
+                    "Homcloud aún no puede procesar PDFs con él. "
+                    "Para la prueba de terminal utiliza "
+                    "diagnostico_openrouter_batch."
+                )
             elif modelo_openrouter_de_pago:
                 info_costo = detalles_openrouter.get(modelo_final_openrouter, {})
                 input_cost = info_costo.get("prompt_usd_1m")
@@ -3188,6 +3204,7 @@ with st.container():
                 key="probar_openrouter_web",
                 disabled=not obtener_api_key_openrouter()
                 or not modelo_valido(modelo_final_openrouter)
+                or modelo_final_openrouter.endswith(":batch")
                 or (modelo_openrouter_de_pago and not st.session_state.get(
                     f"autorizar_pago_openrouter::{modelo_final_openrouter}", False
                 )),
@@ -3570,6 +3587,11 @@ with st.container():
                 requisitos_faltantes.append("guardar la API key de OpenRouter")
             if not modelo_valido(modelo_opencode.split("::", 1)[-1]):
                 requisitos_faltantes.append("elegir un modelo válido de OpenRouter")
+            if modelo_opencode.endswith(":batch"):
+                requisitos_faltantes.append(
+                    "elegir un modelo sin :batch; el procesamiento batch "
+                    "asíncrono aún no está integrado en la web"
+                )
             if (not modelo_gratuito(modelo_opencode.split("::", 1)[-1])
                     and not st.session_state.get(
                         f"autorizar_pago_openrouter::{modelo_opencode.split('::', 1)[-1]}", False
@@ -3608,7 +3630,8 @@ with st.container():
         if proveedor_ia == "OpenRouter" else True
     )
     modelo_ia_valido = (
-        modelo_valido(modelo_opencode.split("::", 1)[-1])
+        (modelo_valido(modelo_opencode.split("::", 1)[-1])
+         and not modelo_opencode.endswith(":batch"))
         if proveedor_ia == "OpenRouter" else True
     )
     pago_ia_autorizado = (
