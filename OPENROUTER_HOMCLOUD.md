@@ -27,7 +27,11 @@ generación AHK con Python, descargas CSV/ZIP e historial de Firestore.
    al proveedor escoger un modelo gratuito de la lista disponible.
 6. Lee la advertencia de privacidad y activa la casilla de autorización
    solo si tienes permiso para enviar las actas al proveedor.
-7. Prueba primero **1 PDF** y **1 proceso simultáneo** antes de usar lotes.
+7. Pulsa **Probar modelo con texto ficticio**. Hace una sola llamada API
+   sin datos reales y confirma si se recibió un JSON válido; consume
+   una solicitud de tu cuota gratuita.
+8. Si pasa la prueba, procesa primero **1 PDF** con **1 proceso simultáneo**
+   antes de iniciar lotes grandes.
 
 ## Opción para API key persistente por cuenta
 
