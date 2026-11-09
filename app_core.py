@@ -827,6 +827,7 @@ def ejecutar_opencode(
     cwd: Path | None = None,
     timeout_segundos: int = OPENCODE_TIMEOUT_SEGUNDOS_DEFAULT,
     cancelar: threading.Event | None = None,
+    api_key_openrouter: str | None = None,
 ):
     """OpenCode con telemetría viva y cancelación del árbol de procesos.
 
@@ -840,6 +841,7 @@ def ejecutar_opencode(
             prompt=prompt, txt_path=txt_path,
             modelo=modelo_opencode.split("::", 1)[1],
             timeout_segundos=timeout_segundos, cancelar=cancelar,
+            api_key=api_key_openrouter,
         )
     opencode_path = shutil.which("opencode")
     if not opencode_path:
@@ -1222,6 +1224,7 @@ def procesar_pdf(
     timeout_opencode_segundos: int = OPENCODE_TIMEOUT_SEGUNDOS_DEFAULT,
     cancelar: threading.Event | None = None,
     timeout_pdf_segundos: int = PDF_TIMEOUT_SEGUNDOS_DEFAULT,
+    api_key_openrouter: str | None = None,
 ):
     inicio_pdf = time.time()
     nombre_seguro = sanitizar_nombre_archivo(uploaded_file.name)
@@ -1353,6 +1356,7 @@ def procesar_pdf(
             else timeout_opencode_segundos
         ),
         cancelar=cancelar,
+        api_key_openrouter=api_key_openrouter,
     )
     guardar_json(opencode_json_path, resultado_opencode)
 
@@ -1789,6 +1793,7 @@ def ejecutar_lote_streamlit(
     parent_run_id: str | None = None,
     timeout_pdf_segundos: int = PDF_TIMEOUT_SEGUNDOS_DEFAULT,
     timeout_opencode_segundos: int = OPENCODE_TIMEOUT_SEGUNDOS_DEFAULT,
+    api_key_openrouter: str | None = None,
 ) -> dict:
     """
     Ejecuta un lote completo y renderiza progreso en Streamlit.
@@ -2061,6 +2066,7 @@ def ejecutar_lote_streamlit(
             timeout_opencode_segundos=timeout_opencode_segundos,
             timeout_pdf_segundos=timeout_pdf_segundos,
             cancelar=cancelaciones[index],
+            api_key_openrouter=api_key_openrouter,
         )
 
     renderizar_estado()
@@ -2993,13 +2999,26 @@ with st.container():
             modelo_opencode = "openrouter::" + modelo_final_openrouter
             if not modelo_gratuito(modelo_final_openrouter):
                 st.error("Elige un modelo :free o openrouter/free; no se permiten modelos de pago.")
-            if obtener_api_key_openrouter():
+            clave_guardada_entorno = bool(obtener_api_key_openrouter())
+            with st.expander(
+                "🔑 API key de OpenRouter",
+                expanded=not clave_guardada_entorno
+                         and not st.session_state.get("openrouter_api_key_sesion"),
+            ):
+                st.text_input(
+                    "Pegar API key (solo esta sesión)",
+                    type="password",
+                    key="openrouter_api_key_sesion",
+                    help="No se guarda en Firestore, en el CSV ni en disco. "
+                         "También puedes configurarla mediante OPENROUTER_API_KEY en .env.",
+                )
+                st.caption("Obtén una clave en https://openrouter.ai/settings/keys")
+            if st.session_state.get("openrouter_api_key_sesion"):
+                st.success("API key cargada temporalmente en esta sesión.")
+            elif clave_guardada_entorno:
                 st.success("API key OpenRouter detectada en este Cloud Shell.")
             else:
-                st.warning(
-                    "Falta OPENROUTER_API_KEY. Guárdala en el archivo .env "
-                    "privado de esta cuenta y reinicia Streamlit."
-                )
+                st.warning("Ingresa la API key para activar OpenRouter.")
             st.caption(
                 "OpenRouter gratuito: normalmente 50 solicitudes por día y 20/min; "
                 "los reintentos fallidos también pueden consumir cuota."
@@ -3319,8 +3338,9 @@ with st.container():
         if not api_keys:
             requisitos_faltantes.append("configurar API keys de LLMWhisperer")
         if proveedor_ia == "OpenRouter":
-            if not obtener_api_key_openrouter():
-                requisitos_faltantes.append("configurar OPENROUTER_API_KEY")
+            if not (st.session_state.get("openrouter_api_key_sesion")
+                    or obtener_api_key_openrouter()):
+                requisitos_faltantes.append("configurar la API key de OpenRouter")
             if not modelo_gratuito(modelo_opencode.split("::", 1)[-1]):
                 requisitos_faltantes.append("elegir un modelo gratuito válido de OpenRouter")
             if not st.session_state.get("autorizar_datos_openrouter", False):
@@ -3347,7 +3367,10 @@ with st.container():
                    else "el análisis se envía al proveedor configurado en OpenCode.")
             )
 
-    motor_listo = bool(obtener_api_key_openrouter()) if proveedor_ia == "OpenRouter" else bool(opencode_path)
+    motor_listo = (
+        bool(st.session_state.get("openrouter_api_key_sesion") or obtener_api_key_openrouter())
+        if proveedor_ia == "OpenRouter" else bool(opencode_path)
+    )
     permiso_ia = (
         st.session_state.get("autorizar_datos_openrouter", False)
         if proveedor_ia == "OpenRouter" else True
@@ -3538,6 +3561,9 @@ if procesar_click:
         etiqueta_boton="Procesamiento por lote",
         timeout_pdf_segundos=timeout_pdf_segundos,
         timeout_opencode_segundos=timeout_opencode_segundos,
+        api_key_openrouter=(
+            st.session_state.get("openrouter_api_key_sesion") or None
+        ),
     )
     lote_ejecutado_en_esta_corrida = True
     ultimo_lote = st.session_state.get("ultimo_lote")
@@ -3569,6 +3595,9 @@ if 'reintentar_click' in locals() and reintentar_click:
                 parent_run_id=run_id_anterior,
                 timeout_pdf_segundos=timeout_pdf_segundos,
                 timeout_opencode_segundos=timeout_opencode_segundos,
+                api_key_openrouter=(
+                    st.session_state.get("openrouter_api_key_sesion") or None
+                ),
             )
 
             resultado_combinado = reconstruir_resultado_lote_combinado(
