@@ -336,6 +336,13 @@ def ejecutar_openrouter(
 
     if not modelo_valido(ident):
         return fallo("El identificador del modelo OpenRouter no es válido.")
+    if ident.endswith(":batch"):
+        return fallo(
+            "Este modelo requiere la API de lotes asíncrona de OpenRouter, "
+            "no chat/completions. Para probarlo utiliza "
+            "python -m diagnostico_openrouter_batch; "
+            "la ejecución batch desde la interfaz aún no está implementada."
+        )
     if not modelo_gratuito(ident) and not permitir_pago:
         return fallo("El modelo de pago no está autorizado para esta solicitud.")
     clave = (api_key if api_key is not None else obtener_api_key_openrouter()).strip()
