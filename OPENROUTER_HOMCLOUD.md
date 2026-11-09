@@ -86,6 +86,58 @@ Con OpenRouter seleccionado se mantiene el flujo de LLMWhisperer → TXT → con
 
 Los TXT incluyen potencialmente datos personales académicos y serán transmitidos a OpenRouter y al proveedor seleccionado. Verifica la política institucional, las condiciones de retención de cada proveedor, la privacidad del modelo concreto y la autorización antes de enviar documentos reales.
 
+## Modelos :batch: prueba específica y limitación del procesador web
+
+El identificador `deepseek/deepseek-v4.1-flash-1017:batch` utiliza
+**OpenRouter Batch API asíncrona**, no `POST /api/v1/chat/completions`.
+El envío debe usar `POST /api/v1/batches` con el modelo base
+`deepseek/deepseek-v4.1-flash-1017` (sin sufijo), y después consultar
+`GET /api/v1/batches/{id}`.
+
+Antes de enviar una solicitud real:
+
+```bash
+cd ~/homcloud
+git pull --ff-only origin main
+.venv/bin/python -m diagnostico_openrouter_batch \
+  --modelo deepseek/deepseek-v4.1-flash-1017:batch --solo-lectura
+```
+
+Esto solo comprueba la clave y el catálogo y no consume inferencia.
+
+Para **enviar una sola solicitud ficticia facturable**, con autorización
+explícita:
+
+```bash
+.venv/bin/python -m diagnostico_openrouter_batch \
+  --modelo deepseek/deepseek-v4.1-flash-1017:batch \
+  --permitir-pago --esperar 120
+```
+
+**Guarda el `batch_id` que se imprime inmediatamente después de crear el
+lote.** Si sigue pendiente al terminar el tiempo de seguimiento, **no
+repitas el comando de envío**, porque crearías otro lote facturable. Usa:
+
+```bash
+.venv/bin/python -m diagnostico_openrouter_batch \
+  --consultar-batch batch_ID_DEVUELTO
+```
+
+Repite solo la consulta del mismo ID hasta obtener `completed`.
+Puede tardar minutos u horas; el tiempo de respuesta no es adecuado para
+el watchdog síncrono de PDFs de homcloud.
+
+La interfaz web de homcloud **aún no implementa la ejecución asíncrona
+batch**: bloquea los modelos `:batch` antes de extraer PDFs para evitar
+el error HTTP 404 y consumos innecesarios de LLMWhisperer. Para producción
+puedes usar el modelo base sin sufijo (API síncrona; precio diferente)
+o desarrollar el procesamiento asíncrono completo.
+
+La prueba real **puede consumir créditos** y solo envía el mensaje
+ficticio «Responde solamente OK». OpenRouter informa que las entradas
+y resultados de Batch API se conservan hasta 30 días o hasta su
+eliminación; no uses documentos académicos reales en la prueba.
+
 ## Diagnóstico completo por terminal para HTTP 404
 
 Una clave HTTP 200 en `GET /api/v1/key` **no demuestra** que el modelo
