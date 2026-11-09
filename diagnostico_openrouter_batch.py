@@ -124,7 +124,15 @@ def ejecutar(*, modelo: str, solo_lectura: bool, permitir_pago: bool,
             })
             return 1
         estado, ok = _mostrar_lote(data, batch_id=consultar_batch, http=http, clave=clave)
-        return 0 if estado in ESTADOS_FINALES and ok else (3 if estado not in ESTADOS_FINALES else 1)
+        resultados_pendientes = (
+            estado == "completed"
+            and (not isinstance(data, dict) or data.get("results") is None)
+        )
+        if resultados_pendientes:
+            _print({"mensaje": "La ejecución terminó; los resultados aún no están disponibles. Consulta el mismo batch_id."})
+        return 0 if estado in ESTADOS_FINALES and ok else (
+            3 if estado not in ESTADOS_FINALES or resultados_pendientes else 1
+        )
 
     base = _validar_modelo(modelo)
     catalogo = listar_modelos_openrouter(timeout=timeout)
@@ -153,7 +161,7 @@ def ejecutar(*, modelo: str, solo_lectura: bool, permitir_pago: bool,
             "custom_id": CUSTOM_ID,
             "body": {
                 "messages": [{"role": "user", "content": "Responde solamente OK."}],
-                "max_tokens": 64,
+                "max_tokens": 256,
             },
         }],
     }
@@ -174,7 +182,7 @@ def ejecutar(*, modelo: str, solo_lectura: bool, permitir_pago: bool,
 
     deadline = time.monotonic() + max(0, esperar)
     while time.monotonic() < deadline:
-        delay = min(15.0, max(0.0, deadline - time.monotonic()))
+        delay = min(30.0, max(0.0, deadline - time.monotonic()))
         if delay:
             time.sleep(delay)
         status, data = _consulta(BATCHES_URL + "/" + batch_id, clave, timeout=timeout)
@@ -182,6 +190,8 @@ def ejecutar(*, modelo: str, solo_lectura: bool, permitir_pago: bool,
             _print({"http_consulta": status, "batch_id": batch_id, "error": _detalle_error(data, clave)})
             return 1
         estado, ok = _mostrar_lote(data, batch_id=batch_id, http=status, clave=clave)
+        if estado == "completed" and isinstance(data, dict) and data.get("results") is None:
+            continue  # OpenRouter puede finalizar antes de publicar resultados.
         if estado in ESTADOS_FINALES:
             return 0 if ok else 1
     _print({
