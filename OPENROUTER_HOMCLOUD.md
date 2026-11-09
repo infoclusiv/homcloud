@@ -1,119 +1,56 @@
-# OpenRouter en homcloud — modelos gratuitos seleccionables desde la web
+# OpenRouter en homcloud — modelos gratuitos y de pago
 
-Homcloud permite **OpenCode CLI o OpenRouter API directa**. La segunda opción
-no requiere instalar OpenCode: utiliza las mismas funciones LLMWhisperer,
-prompts de Pregrado/Posgrado, contrato de JSON, validaciones académicas,
-generación AHK con Python, descargas CSV/ZIP e historial de Firestore.
+## Configuración desde la interfaz
 
-## Primer uso
+1. Actualiza el repositorio en tu Cloud Shell y abre la aplicación.
+2. En **Proveedor de IA** selecciona **OpenRouter**.
+3. En **🔑 Configurar API key OpenRouter**, pega la clave una sola vez y pulsa **Guardar API key permanentemente en este Cloud Shell**.
+4. En **Catálogo**, elige **Todos**, **Gratis** o **Pago**.
+5. Busca por nombre o ID y selecciona **Modelo OpenRouter**. Usa **Actualizar catálogo completo** cuando necesites refrescar los precios y los modelos.
+6. Si es de pago, revisa el precio y marca **Autorizo el uso facturable de [modelo]**.
+7. Pulsa **Probar modelo con texto ficticio** antes de subir archivos reales.
+8. Revisa privacidad y autorización institucional. Empieza con un PDF y un worker.
 
-1. Crea una API key en **https://openrouter.ai/settings/keys**.
-   No la compartas con nadie ni la incluyas en GitHub.
-2. En el Cloud Shell elegido, actualiza el repositorio:
-   ```bash
-   cd ~/homcloud       # En infoclusiv usa ~/llmwhisperer-pdf-parser
-   git pull --ff-only origin main
-   .venv/bin/python -m unittest test_openrouter_cliente test_integridad_app -v
-   bash ./run_cloudshell.sh
-   ```
-3. Abre Web Preview, entra a **Configuración rápida → Proveedor de IA**
-   y selecciona **OpenRouter**.
-4. En **API key de OpenRouter**, pega tu clave (campo tipo contraseña).
-   Se usa **solo en esa sesión de Streamlit**: no se escribe en archivos,
-   Firestore, CSV ni en mensajes de error. Si reinicias la sesión,
-   vuelve a introducirla.
-5. En **Modelo OpenRouter** elige uno del menú. Puedes filtrar por nombre
-   o actualizar el catálogo. Hay una opción `openrouter/free` que permite
-   al proveedor escoger un modelo gratuito de la lista disponible.
-6. Lee la advertencia de privacidad y activa la casilla de autorización
-   solo si tienes permiso para enviar las actas al proveedor.
-7. Pulsa **Probar modelo con texto ficticio**. Hace una sola llamada API
-   sin datos reales y confirma si se recibió un JSON válido; consume
-   una solicitud de tu cuota gratuita.
-8. Si pasa la prueba, procesa primero **1 PDF** con **1 proceso simultáneo**
-   antes de iniciar lotes grandes.
+El catálogo procede del endpoint oficial `GET /api/v1/models`; permite TODOS los modelos compatibles con texto, no solamente `:free`. Muestra precios USD por millón de tokens de entrada y salida cuando están disponibles; esos precios no son un techo de gasto. Los modelos pagos pueden consumir créditos incluso en pruebas sintéticas; la autorización se solicita para cada modelo por separado.
 
-## Opción para API key persistente por cuenta
+## API key: archivo privado, no código versionado
 
-En vez de pegar la clave cada sesión, puedes guardarla **en el archivo .env
-privado de ese Cloud Shell** bajo el nombre:
+La clave se guarda en `settings/openrouter_api_key.txt` dentro del Cloud Shell que utiliza la web, con permisos `0600`. Se reutiliza al reiniciar el programa. El archivo está ignorado por Git y no se envía a GitHub ni Firestore. Nunca coloques claves en `app.py` ni en ningún archivo versionado.
 
-```text
-OPENROUTER_API_KEY=tu_clave_privada
-```
+**Importante:** si tu archivo privado `.env` contiene `OPENROUTER_API_KEY`, esa variable tiene prioridad sobre el archivo nuevo. Las dos cuentas de Cloud Shell tienen entornos independientes, por lo que cada una guarda su propia clave una vez.
 
-Recomendamos protegerlo con `chmod 600 .env`. El archivo está ignorado
-por Git. Debes configurarlo por separado en cada Cloud Shell. Nunca publiques
-la clave en el catálogo compartido o Firestore.
+Crea tus credenciales en https://openrouter.ai/settings/keys. No compartas claves ni archivos de respaldo que las contengan.
 
-Para probar la conexión de forma sintética desde terminal, sin PDFs:
+## Interfaz más compacta
+
+En Inicio se conservan solamente los controles de trabajo diario: concurrencia, proveedor/modelo, carga de PDFs o Excel, progreso, resumen, errores, reintentos y descargas.
+
+El sidebar añade las páginas:
+- **Programas y planes**: editor completo y gestión del catálogo.
+- **Configuración operativa**: predeterminados globales, retención y limpieza manual.
+
+Las opciones de sincronización, prompts, timeouts y publicación global del modelo quedan en desplegables del sidebar. Esto evita que un editor de programas colapsado deje un gran espacio vacío al lado de un bloque de configuración mucho más alto.
+
+## Integración y privacidad
+
+Con OpenRouter seleccionado se mantiene el flujo de LLMWhisperer → TXT → contrato JSON → validación Python → AHK + CSV + historial. Los modelos de pago requieren autorización explícita antes del procesamiento y de los reintentos. La interfaz limita de forma conservadora a 2 las llamadas simultáneas a OpenRouter.
+
+Los TXT incluyen potencialmente datos personales académicos y serán transmitidos a OpenRouter y al proveedor seleccionado. Verifica la política institucional, las condiciones de retención de cada proveedor, la privacidad del modelo concreto y la autorización antes de enviar documentos reales.
+
+## Verificar en Cloud Shell
+
+Cuenta auxiliar:
 
 ```bash
 cd ~/homcloud
-.venv/bin/python -m openrouter_cliente probar --model openrouter/free --timeout 45
+git pull --ff-only origin main
+.venv/bin/python -m unittest test_openrouter_cliente test_integridad_app test_excel_runtime_patch -v
+bash ./run_cloudshell.sh
 ```
 
-El comando consume **una solicitud real de cuota gratuita** y solo envía
-un texto ficticio. Si la conexión funciona pero el modelo no genera el JSON
-esperado, `conexion_ok` puede ser verdadero y `json_valido` falso;
-en ese caso, elige otro modelo gratuito.
-
-## Selección, persistencia y seguridad
-
-La lista se obtiene del endpoint público de modelos de OpenRouter;
-homcloud solo permite los IDs de variantes terminadas en `:free` y
-`openrouter/free`. **Rechaza modelos de pago antes de realizar la solicitud.**
-El selector ofrece también un campo manual para un ID `:free` válido.
-
-La selección se conserva en la sesión. Cuando no hay un modelo global
-publicado, se guarda también el modelo elegido en la configuración local.
-Puedes utilizar **Publicar este modelo globalmente** para aplicar la
-selección a las dos cuentas mediante el sistema Firestore existente.
-**Solo el identificador de modelo** se comparte globalmente: nunca la clave.
-
-El cliente usa HTTPS y `/api/v1/chat/completions`; envía el contrato
-técnico JSON y el TXT extraído por LLMWhisperer. La respuesta vuelve
-al mismo validador que ya genera AHK/CSV. Los archivos de respuesta
-locales se borran bajo el ciclo de retención de lotes anterior.
-
-El proveedor remoto recibe contenido de actas académicas, que puede incluir
-datos personales. Antes de enviar documentos reales, revisa la autorización
-institucional, condiciones de privacidad y retención del modelo elegido.
-`openrouter/free` puede cambiar dinámicamente de proveedor; usa un
-modelo específico si necesitas revisar sus condiciones.
-
-## Cuotas y límites
-
-OpenRouter indica para el nivel sin compra de créditos un límite típico de
-**50 solicitudes/día y 20/minuto** en variantes gratuitas. Los intentos
-fallidos pueden consumir cuota. El procesamiento limita la ejecución a
-**2 solicitudes OpenRouter simultáneas**, aunque el deslizador general
-indique más workers. No hay garantía de disponibilidad continua ni de
-capacidad ilimitada. No cambia automáticamente a modelos de pago ni
-intenta sobrepasar bloqueos 429.
-
-El cliente muestra errores seguros por categoría:
-- **HTTP 401:** clave incorrecta o no autorizada.
-- **HTTP 402/403:** restricciones de saldo, cuenta o acceso.
-- **HTTP 429:** cuota o límite de velocidad.
-- **HTTP 5xx:** problemas del proveedor.
-- **Timeout / JSON vacío o inválido:** revisar modelo elegido y contrato.
-
-El timeout interno de la llamada OpenRouter se ajusta al tiempo restante
-del PDF con un margen de seguridad. A diferencia de la CLI, una petición
-HTTPS bloqueada no se puede terminar desde otro hilo: el timeout de red
-es el límite de espera real, por lo que no conviene configurarlo por encima
-del timeout total del PDF.
-
-## Compatibilidad
-
-Los modelos OpenCode previamente seleccionados continúan funcionando.
-Los nombres de carpetas/archivos técnicos `*_opencode.json` se mantienen
-para que los mecanismos anteriores de recuperación y descarga no fallen,
-aunque el proveedor elegido ahora sea OpenRouter.
+Para infoclusiv, la ruta de la aplicación es `~/llmwhisperer-pdf-parser`; respalda primero cambios versionados locales antes de actualizar.
 
 Documentación oficial:
-- Modelos: https://openrouter.ai/docs/api/api-reference/models/get-models
-- API: https://openrouter.ai/docs/api/reference/overview
-- Modelos gratuitos: https://openrouter.ai/collections/free-models
-- Claves API: https://openrouter.ai/settings/keys
+- https://openrouter.ai/docs/api/api-reference/models/get-models
+- https://openrouter.ai/docs/api/reference/overview
+- https://openrouter.ai/settings/keys
