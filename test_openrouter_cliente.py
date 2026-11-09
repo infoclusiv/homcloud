@@ -134,6 +134,73 @@ class OpenRouterTests(unittest.TestCase):
                 o.borrar_api_key_openrouter()
                 self.assertEqual(o.obtener_api_key_openrouter(), "")
 
+    def test_prioridad_clave_web_sobre_env_anterior(self):
+        with TemporaryDirectory() as tmp:
+            ruta = Path(tmp) / "settings" / "openrouter_api_key.txt"
+            with patch.object(o, "CLAVE_LOCAL", ruta), \
+                 patch.dict(os.environ, {"OPENROUTER_API_KEY": "sk-or-OLD"}):
+                self.assertEqual(o.obtener_api_key_openrouter(), "sk-or-OLD")
+                self.assertEqual(o.fuente_api_key_openrouter()["origen"], "entorno_env")
+                o.guardar_api_key_openrouter("sk-or-NEW")
+                self.assertEqual(o.obtener_api_key_openrouter(), "sk-or-NEW")
+                fuentes = o.fuente_api_key_openrouter()
+                self.assertEqual(fuentes["origen"], "archivo_privado")
+                self.assertTrue(fuentes["hay_dos_fuentes"])
+
+    def test_verificacion_clave_activa_sin_enviar_prompt(self):
+        with TemporaryDirectory() as tmp:
+            ruta = Path(tmp) / "settings" / "openrouter_api_key.txt"
+            with patch.object(o, "CLAVE_LOCAL", ruta), \
+                 patch.dict(os.environ, {"OPENROUTER_API_KEY": ""}):
+                o.guardar_api_key_openrouter("sk-or-TEST-ONLY")
+                respuesta = {
+                    "data": {
+                        "is_free_tier": True,
+                        "limit_remaining": 14.2,
+                        "creator_user_id": "NO_EXPOSER_ID_USUARIO",
+                        "label": "NO_EXPOSER_LABEL",
+                    },
+                }
+                with patch("openrouter_cliente.request.urlopen", return_value=io.BytesIO(
+                    json.dumps(respuesta).encode("utf-8")
+                )) as llamada:
+                    estado = o.verificar_api_key_openrouter()
+                self.assertTrue(estado["ok"])
+                self.assertEqual(estado["http_status"], 200)
+                self.assertEqual(estado["origen"], "archivo_privado")
+                self.assertNotIn("sk-or-TEST-ONLY", str(estado))
+                self.assertNotIn("NO_EXPOSER_ID_USUARIO", str(estado))
+                self.assertNotIn("NO_EXPOSER_LABEL", str(estado))
+                peticion = llamada.call_args.args[0]
+                self.assertEqual(peticion.get_method(), "GET")
+                self.assertEqual(peticion.full_url, o.URL_CLAVE)
+                self.assertIsNone(peticion.data)
+                self.assertEqual(peticion.headers["Authorization"], "Bearer sk-or-TEST-ONLY")
+
+    def test_verificacion_401_no_muestra_body_ni_key(self):
+        error_401 = HTTPError(
+            o.URL_CLAVE, 401, "Reason with PRIVATE PERSON",
+            {}, io.BytesIO(b'{"error":{"message":"PRIVATE SECRET"}}'),
+        )
+        with patch("openrouter_cliente.request.urlopen", side_effect=error_401):
+            estado = o.verificar_api_key_openrouter("sk-or-EXAMPLE")
+        self.assertFalse(estado["ok"])
+        self.assertEqual(estado["http_status"], 401)
+        self.assertEqual(estado["origen"], "clave_de_sesion")
+        self.assertNotIn("sk-or-EXAMPLE", str(estado))
+        self.assertNotIn("PRIVATE SECRET", str(estado))
+        self.assertNotIn("PRIVATE PERSON", str(estado))
+
+    def test_no_guarda_prefijos_bearer_ni_comillas(self):
+        with TemporaryDirectory() as tmp:
+            ruta = Path(tmp) / "openrouter_api_key.txt"
+            with patch.object(o, "CLAVE_LOCAL", ruta):
+                for clave in ('Bearer sk-or-v1-example', '"sk-or-v1-example"'):
+                    with self.subTest(clave=clave):
+                        with self.assertRaises(ValueError):
+                            o.guardar_api_key_openrouter(clave)
+                self.assertFalse(ruta.exists())
+
     def test_precio_catalogo_por_millon_tokens(self):
         data = {"data": [{
             "id": "vendor/paid",
