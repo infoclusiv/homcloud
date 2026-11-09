@@ -19,8 +19,11 @@ from datetime import datetime
 from dotenv import load_dotenv
 from diagnostico_opencode import ejecutar_monitoreado, resumir_lote
 from opencode_compat import crear_comando_opencode, detectar_version_opencode
-from openrouter_cliente import (ejecutar_openrouter, listar_modelos_openrouter,
-    obtener_api_key_openrouter, modelo_gratuito, ROUTER_GRATUITO)
+from openrouter_cliente import (
+    ejecutar_openrouter, listar_modelos_openrouter,
+    obtener_api_key_openrouter, guardar_api_key_openrouter, borrar_api_key_openrouter,
+    modelo_gratuito, modelo_valido, ROUTER_GRATUITO,
+)
 from historial_homologaciones import archivar_lote
 from operativa_compartida import (
     TIPOS as TIPOS_GLOBALES,
@@ -829,6 +832,7 @@ def ejecutar_opencode(
     timeout_segundos: int = OPENCODE_TIMEOUT_SEGUNDOS_DEFAULT,
     cancelar: threading.Event | None = None,
     api_key_openrouter: str | None = None,
+    permitir_pago_openrouter: bool = False,
 ):
     """OpenCode con telemetría viva y cancelación del árbol de procesos.
 
@@ -843,6 +847,7 @@ def ejecutar_opencode(
             modelo=modelo_opencode.split("::", 1)[1],
             timeout_segundos=timeout_segundos, cancelar=cancelar,
             api_key=api_key_openrouter,
+            permitir_pago=permitir_pago_openrouter,
         )
     opencode_path = shutil.which("opencode")
     if not opencode_path:
@@ -1226,6 +1231,7 @@ def procesar_pdf(
     cancelar: threading.Event | None = None,
     timeout_pdf_segundos: int = PDF_TIMEOUT_SEGUNDOS_DEFAULT,
     api_key_openrouter: str | None = None,
+    permitir_pago_openrouter: bool = False,
 ):
     inicio_pdf = time.time()
     nombre_seguro = sanitizar_nombre_archivo(uploaded_file.name)
@@ -1358,6 +1364,7 @@ def procesar_pdf(
         ),
         cancelar=cancelar,
         api_key_openrouter=api_key_openrouter,
+        permitir_pago_openrouter=permitir_pago_openrouter,
     )
     guardar_json(opencode_json_path, resultado_opencode)
 
@@ -1801,6 +1808,7 @@ def ejecutar_lote_streamlit(
     timeout_pdf_segundos: int = PDF_TIMEOUT_SEGUNDOS_DEFAULT,
     timeout_opencode_segundos: int = OPENCODE_TIMEOUT_SEGUNDOS_DEFAULT,
     api_key_openrouter: str | None = None,
+    permitir_pago_openrouter: bool = False,
 ) -> dict:
     """
     Ejecuta un lote completo y renderiza progreso en Streamlit.
@@ -2074,6 +2082,7 @@ def ejecutar_lote_streamlit(
             timeout_pdf_segundos=timeout_pdf_segundos,
             cancelar=cancelaciones[index],
             api_key_openrouter=api_key_openrouter,
+            permitir_pago_openrouter=permitir_pago_openrouter,
         )
 
     renderizar_estado()
