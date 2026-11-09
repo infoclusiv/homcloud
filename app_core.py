@@ -2736,11 +2736,12 @@ st.markdown(
       <div class=\"header-grid\">
         <div>
           <h1>Procesador por lote</h1>
-          <p>LLMWhisperer + OpenCode CLI · interfaz compacta para configurar, cargar y procesar sin casi hacer scroll.</p>
+          <p>LLMWhisperer + OpenCode / OpenRouter · selecciona el motor de IA y procesa PDFs por lotes.</p>
         </div>
         <div class=\"chip-row\">
           {construir_estado_chip("API keys LLMWhisperer", api_value)}
           {construir_estado_chip("OpenCode", opencode_value)}
+          {construir_estado_chip("OpenRouter", "API key lista" if obtener_api_key_openrouter() else "Sin API key")}
           {construir_estado_chip("Prompts", "Pregrado y Posgrado")}
         </div>
       </div>
@@ -2760,6 +2761,8 @@ if st.session_state.pop("_reset_global_controles_pendiente", False):
     for clave in (
         "prompt_pregrado", "prompt_posgrado",
         "modelo_detectado_opencode", "modelo_manual_opencode",
+        "proveedor_ia_selector", "modelo_elegido_openrouter",
+        "modelo_manual_openrouter",
         "timeout_opencode_minutos", "timeout_pdf_minutos",
     ):
         st.session_state.pop(clave, None)
@@ -2920,77 +2923,162 @@ with st.container():
                         st.session_state.pop("_historial_global_vista", None)
                         _reiniciar_controles_globales()
 
-        if st.button("🔄 Actualizar modelos", use_container_width=True, key="btn_actualizar_modelos_rapido"):
-            with st.spinner("Consultando modelos con opencode models --refresh..."):
-                st.session_state.modelos_opencode_resultado = obtener_modelos_opencode(refresh=True)
-                modelos_resultado = st.session_state.modelos_opencode_resultado
-                modelos_detectados = modelos_resultado.get("models", [])
-                opciones_modelo = [opcion_default_modelo] + modelos_detectados
-
-        # La búsqueda filtra por cualquier parte del identificador provider/model,
-        # sin modificar el modelo activo hasta que el usuario seleccione otro.
-        filtro_modelos = st.text_input(
-            "🔎 Buscar modelo OpenCode",
-            placeholder="Ejemplo: free, gemini, gpt, claude...",
-            key="filtro_modelos_opencode",
-            help="Busca por nombre, proveedor o palabra clave, sin distinguir mayúsculas.",
-        ).strip().casefold()
-
-        modelos_filtrados = [
-            modelo for modelo in modelos_detectados
-            if filtro_modelos in modelo.casefold()
-        ]
-        opciones_modelo_visibles = [opcion_default_modelo] + modelos_filtrados
-
-        # Mantener visible el modelo activo evita que escribir en el buscador
-        # cambie involuntariamente el modelo guardado.
-        if modelo_guardado_previo and modelo_guardado_previo not in opciones_modelo_visibles:
-            opciones_modelo_visibles.insert(1, modelo_guardado_previo)
-
-        if filtro_modelos:
+        # El valor compartido conserva el mismo campo "modelo" en Firestore.
+        # Prefijo openrouter:: evita migraciones y no comparte API keys.
+        proveedor_predeterminado = (
+            "OpenRouter" if modelo_guardado_previo.startswith("openrouter::")
+            else "OpenCode"
+        )
+        proveedor_ia = st.radio(
+            "Proveedor de IA",
+            ["OpenCode", "OpenRouter"],
+            index=1 if proveedor_predeterminado == "OpenRouter" else 0,
+            horizontal=True,
+            key="proveedor_ia_selector",
+        )
+        if proveedor_ia == "OpenRouter":
             st.caption(
-                f"{len(modelos_filtrados)} modelo(s) coinciden con '{filtro_modelos}'. "
-                "El modelo activo se conserva aunque no coincida con la búsqueda."
+                "Modelos de OpenRouter por API directa. Solo variantes gratuitas "
+                "(:free) y openrouter/free; no se autorizan modelos de pago."
             )
-
-        # Cuando se elige un modelo del listado, la entrada manual previa
-        # debe dejar de tener prioridad sobre esa nueva selección.
-        if "modelo_manual_opencode" not in st.session_state:
-            st.session_state["modelo_manual_opencode"] = modelo_manual_guardado
-
-        def _al_cambiar_modelo_detectado_opencode():
-            st.session_state["modelo_manual_opencode"] = ""
-
-        modelo_seleccionado_ui = st.selectbox(
-            "Modelo OpenCode",
-            options=opciones_modelo_visibles,
-            index=(
-                opciones_modelo_visibles.index(modelo_guardado_previo)
-                if modelo_guardado_previo in opciones_modelo_visibles else 0
-            ),
-            key="modelo_detectado_opencode",
-            on_change=_al_cambiar_modelo_detectado_opencode,
-            help="Selecciona un modelo de los resultados o escribe uno manualmente más abajo.",
-        )
-
-        modelo_manual = st.text_input(
-            "Modelo manual (opcional)",
-            placeholder="Ejemplo: provider/model",
-            key="modelo_manual_opencode",
-        )
-
-        if modelo_manual.strip():
-            modelo_opencode = modelo_manual.strip()
+            if "modelos_openrouter_resultado" not in st.session_state:
+                with st.spinner("Consultando catálogo gratuito de OpenRouter..."):
+                    st.session_state["modelos_openrouter_resultado"] = listar_modelos_openrouter()
+            if st.button("🔄 Actualizar modelos gratuitos", key="actualizar_openrouter_modelos"):
+                st.session_state["modelos_openrouter_resultado"] = listar_modelos_openrouter()
+            catalogo_openrouter = st.session_state["modelos_openrouter_resultado"]
+            if not catalogo_openrouter.get("ok"):
+                st.warning(catalogo_openrouter.get("error", "No fue posible leer el catálogo."))
+            lista_openrouter = catalogo_openrouter.get("models") or [ROUTER_GRATUITO]
+            modelo_previo_openrouter = (
+                modelo_guardado_previo.split("::", 1)[1]
+                if modelo_guardado_previo.startswith("openrouter::")
+                else ROUTER_GRATUITO
+            )
+            filtro_openrouter = st.text_input(
+                "🔎 Buscar modelo OpenRouter",
+                placeholder="Ej.: qwen, gemma, llama...",
+                key="filtro_modelos_openrouter",
+            ).strip().casefold()
+            visibles_openrouter = [
+                m for m in lista_openrouter if filtro_openrouter in m.casefold()
+            ]
+            actual_openrouter = st.session_state.get(
+                "modelo_elegido_openrouter", modelo_previo_openrouter
+            )
+            if modelo_gratuito(actual_openrouter) and actual_openrouter not in visibles_openrouter:
+                visibles_openrouter.insert(0, actual_openrouter)
+            if modelo_gratuito(modelo_previo_openrouter) and modelo_previo_openrouter not in visibles_openrouter:
+                visibles_openrouter.insert(0, modelo_previo_openrouter)
+            if not visibles_openrouter:
+                visibles_openrouter = [ROUTER_GRATUITO]
+            seleccionado_openrouter = st.selectbox(
+                "Modelo OpenRouter",
+                options=visibles_openrouter,
+                index=(
+                    visibles_openrouter.index(modelo_previo_openrouter)
+                    if modelo_previo_openrouter in visibles_openrouter else 0
+                ),
+                key="modelo_elegido_openrouter",
+                help="openrouter/free selecciona automáticamente un modelo gratuito.",
+            )
+            manual_openrouter = st.text_input(
+                "ID gratuito manual (opcional)",
+                placeholder="proveedor/modelo:free",
+                key="modelo_manual_openrouter",
+                help="Permite seleccionar un modelo :free que no aparezca en el catálogo.",
+            ).strip()
+            modelo_final_openrouter = manual_openrouter or seleccionado_openrouter
+            modelo_opencode = "openrouter::" + modelo_final_openrouter
+            if not modelo_gratuito(modelo_final_openrouter):
+                st.error("Elige un modelo :free o openrouter/free; no se permiten modelos de pago.")
+            if obtener_api_key_openrouter():
+                st.success("API key OpenRouter detectada en este Cloud Shell.")
+            else:
+                st.warning(
+                    "Falta OPENROUTER_API_KEY. Guárdala en el archivo .env "
+                    "privado de esta cuenta y reinicia Streamlit."
+                )
+            st.caption(
+                "OpenRouter gratuito: normalmente 50 solicitudes por día y 20/min; "
+                "los reintentos fallidos también pueden consumir cuota."
+            )
+            st.warning(
+                "El texto completo extraído de las actas se enviará a OpenRouter "
+                "y a su proveedor de IA. Comprueba antes las políticas de privacidad."
+            )
+            st.checkbox(
+                "Autorizo el envío de estos documentos al proveedor seleccionado",
+                key="autorizar_datos_openrouter",
+            )
         else:
-            modelo_opencode = "" if modelo_seleccionado_ui == opcion_default_modelo else modelo_seleccionado_ui
+            if st.button("🔄 Actualizar modelos", use_container_width=True,
+                         key="btn_actualizar_modelos_rapido"):
+                with st.spinner("Consultando modelos con opencode models --refresh..."):
+                    st.session_state.modelos_opencode_resultado = obtener_modelos_opencode(refresh=True)
+                    modelos_resultado = st.session_state.modelos_opencode_resultado
+                    modelos_detectados = modelos_resultado.get("models", [])
+                    opciones_modelo = [opcion_default_modelo] + modelos_detectados
+
+            filtro_modelos = st.text_input(
+                "🔎 Buscar modelo OpenCode",
+                placeholder="Ejemplo: free, gemini, gpt, claude...",
+                key="filtro_modelos_opencode",
+                help="Busca por nombre, proveedor o palabra clave.",
+            ).strip().casefold()
+            modelos_filtrados = [
+                modelo for modelo in modelos_detectados
+                if filtro_modelos in modelo.casefold()
+            ]
+            opciones_modelo_visibles = [opcion_default_modelo] + modelos_filtrados
+            if (modelo_guardado_previo and not modelo_guardado_previo.startswith("openrouter::")
+                    and modelo_guardado_previo not in opciones_modelo_visibles):
+                opciones_modelo_visibles.insert(1, modelo_guardado_previo)
+            if filtro_modelos:
+                st.caption(f"{len(modelos_filtrados)} modelo(s) coincidentes.")
+            if "modelo_manual_opencode" not in st.session_state:
+                st.session_state["modelo_manual_opencode"] = (
+                    modelo_manual_guardado
+                    if not modelo_manual_guardado.startswith("openrouter::") else ""
+                )
+
+            def _al_cambiar_modelo_detectado_opencode():
+                st.session_state["modelo_manual_opencode"] = ""
+
+            modelo_seleccionado_ui = st.selectbox(
+                "Modelo OpenCode",
+                options=opciones_modelo_visibles,
+                index=(
+                    opciones_modelo_visibles.index(modelo_guardado_previo)
+                    if modelo_guardado_previo in opciones_modelo_visibles else 0
+                ),
+                key="modelo_detectado_opencode",
+                on_change=_al_cambiar_modelo_detectado_opencode,
+            )
+            modelo_manual = st.text_input(
+                "Modelo manual (opcional)",
+                placeholder="Ejemplo: provider/model",
+                key="modelo_manual_opencode",
+            )
+            if modelo_manual.strip():
+                modelo_opencode = modelo_manual.strip()
+            else:
+                modelo_opencode = (
+                    "" if modelo_seleccionado_ui == opcion_default_modelo
+                    else modelo_seleccionado_ui
+                )
 
         if (modelo_opencode != modelo_local_guardado
                 and (excepciones_cuenta["modelo"] or bloques_globales["modelo"] is None)):
             guardar_modelo_opencode_persistente(modelo_opencode)
 
         if modelo_opencode:
-            st.success(f"Modelo activo: {modelo_opencode}")
-            if (bloques_globales["modelo"] is not None
+            st.success(
+                f"Motor activo: {proveedor_ia} · "
+                f"{modelo_opencode.split('::', 1)[1] if proveedor_ia == 'OpenRouter' else modelo_opencode}"
+            )
+            if (proveedor_ia == "OpenCode"
+                    and bloques_globales["modelo"] is not None
                     and not excepciones_cuenta["modelo"]
                     and modelos_resultado.get("ok")
                     and modelo_opencode not in modelos_detectados):
@@ -3229,7 +3317,14 @@ with st.container():
             requisitos_faltantes.append("definir el prompt de Posgrado")
         if not api_keys:
             requisitos_faltantes.append("configurar API keys de LLMWhisperer")
-        if not opencode_path:
+        if proveedor_ia == "OpenRouter":
+            if not obtener_api_key_openrouter():
+                requisitos_faltantes.append("configurar OPENROUTER_API_KEY")
+            if not modelo_gratuito(modelo_opencode.split("::", 1)[-1]):
+                requisitos_faltantes.append("elegir un modelo gratuito válido de OpenRouter")
+            if not st.session_state.get("autorizar_datos_openrouter", False):
+                requisitos_faltantes.append("autorizar el envío de datos al proveedor")
+        elif not opencode_path:
             requisitos_faltantes.append("tener OpenCode disponible en el PATH")
 
         disabled = len(requisitos_faltantes) > 0
@@ -3246,6 +3341,15 @@ with st.container():
         else:
             st.markdown('<div class="primary-cta-note">El procesamiento es seguro y todos los archivos se manejan localmente dentro del lote actual.</div>', unsafe_allow_html=True)
 
+    motor_listo = bool(obtener_api_key_openrouter()) if proveedor_ia == "OpenRouter" else bool(opencode_path)
+    permiso_ia = (
+        st.session_state.get("autorizar_datos_openrouter", False)
+        if proveedor_ia == "OpenRouter" else True
+    )
+    modelo_ia_valido = (
+        modelo_gratuito(modelo_opencode.split("::", 1)[-1])
+        if proveedor_ia == "OpenRouter" else True
+    )
     with col_right:
         st.markdown('<div class="panel-title">📊 Resumen del lote</div>', unsafe_allow_html=True)
         st.markdown('<div class="panel-subtitle">Métricas rápidas del último resultado disponible o de la tanda actual seleccionada.</div>', unsafe_allow_html=True)
@@ -3308,7 +3412,8 @@ with st.container():
 
             reintentar_click = st.button(
                 f"🔁 Reintentar {len(filas_error_panel)} PDF(s) con error",
-                disabled=not api_keys or not opencode_path or bool(errores_globales) or bool(_ajustes_globales_obsoletos()),
+                disabled=not api_keys or not motor_listo or not permiso_ia or not modelo_ia_valido
+                         or bool(errores_globales) or bool(_ajustes_globales_obsoletos()),
                 use_container_width=True,
                 key=f"boton_reintentar_panel_{(ultimo_lote or {}).get('run_id','sin_run')}",
             )
@@ -3396,7 +3501,8 @@ if filas_error_destacadas:
     with col_retry_action:
         reintentar_click_destacado = st.button(
             f"🔁 Reintentar ahora {len(filas_error_destacadas)} PDF(s) con error",
-            disabled=not api_keys or not opencode_path or bool(errores_globales) or bool(_ajustes_globales_obsoletos()),
+            disabled=not api_keys or not motor_listo or not permiso_ia or not modelo_ia_valido
+                         or bool(errores_globales) or bool(_ajustes_globales_obsoletos()),
             use_container_width=True,
             type="primary",
             key=f"boton_reintentar_destacado_{run_id_reintento_destacado}",
