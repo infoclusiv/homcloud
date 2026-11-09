@@ -223,3 +223,59 @@ def ejecutar_openrouter(
         return fallo(f"No se pudo conectar con OpenRouter ({type(exc.reason).__name__}).")
     except (OSError, ValueError, TypeError):
         return fallo("Respuesta inválida o error de red al consultar OpenRouter.")
+
+
+def main(argv=None) -> int:
+    """Prueba gratuita sintética, sin PDFs personales ni datos de producción."""
+    import argparse
+    import tempfile
+    parser = argparse.ArgumentParser(description="Probar conexión OpenRouter sin documentos")
+    parser.add_argument("accion", choices=["probar"])
+    parser.add_argument("--model", default=ROUTER_GRATUITO)
+    parser.add_argument("--timeout", type=int, default=45)
+    args = parser.parse_args(argv)
+    if not 5 <= args.timeout <= 180:
+        parser.error("timeout entre 5 y 180 segundos")
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env")
+    except ImportError:
+        pass
+    if not modelo_gratuito(args.model):
+        print("ERROR: Solo se permiten modelos :free u openrouter/free.")
+        return 2
+    if not obtener_api_key_openrouter():
+        print("ERROR: falta OPENROUTER_API_KEY en el entorno o .env.")
+        return 2
+
+    with tempfile.TemporaryDirectory(prefix="homcloud_openrouter_test_") as folder:
+        archivo = Path(folder) / "ejemplo_sintetico.txt"
+        archivo.write_text(
+            "Documento FICTICIO: una prueba de conexión. "
+            "No contiene ningún dato de estudiante.", encoding="utf-8",
+        )
+        resultado = ejecutar_openrouter(
+            'Devuelve SOLO un objeto JSON con {"estado": "detenido", '
+            '"motivo_detencion": "prueba", "registros": []}.',
+            archivo, args.model, args.timeout,
+        )
+    valido = False
+    if resultado.get("ok"):
+        try:
+            data = json.loads(resultado["stdout"])
+            valido = isinstance(data, dict) and data.get("estado") == "detenido"
+        except (ValueError, TypeError):
+            pass
+    print(json.dumps({
+        "modelo": args.model,
+        "conexion_ok": resultado.get("ok", False),
+        "json_valido": valido,
+        "duracion_segundos": resultado.get("duracion_segundos"),
+        "uso_tokens": resultado.get("usage"),
+        "error": resultado.get("error", ""),
+    }, ensure_ascii=False, indent=2))
+    return 0 if resultado.get("ok") and valido else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
