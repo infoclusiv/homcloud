@@ -22,6 +22,7 @@ from opencode_compat import crear_comando_opencode, detectar_version_opencode
 from openrouter_cliente import (
     ejecutar_openrouter, listar_modelos_openrouter,
     obtener_api_key_openrouter, guardar_api_key_openrouter, borrar_api_key_openrouter,
+    fuente_api_key_openrouter, verificar_api_key_openrouter,
     modelo_gratuito, modelo_valido, ROUTER_GRATUITO,
 )
 from historial_homologaciones import archivar_lote
@@ -1394,7 +1395,11 @@ def procesar_pdf(
         fila["Error"] = (
             (f"Diagnóstico: {clasificacion}. " if clasificacion else "")
             + str(detalle_ejecucion)[:400]
-            + " Revisa Diagnóstico OpenCode para detalles técnicos."
+            + (
+                " Comprueba la API key en Inicio → Credenciales OpenRouter."
+                if nombre_error_proveedor == "Error OpenRouter"
+                else " Revisa Diagnóstico OpenCode para detalles técnicos."
+            )
         )
         fila["Duración"] = formatear_duracion(time.time() - inicio_pdf)
         limpiar_temporales_raiz_proyecto_opencode()
@@ -3075,12 +3080,24 @@ with st.container():
                 st.caption("Modelo gratuito: sujeto a cupos y disponibilidad.")
             st.caption(f"{len(lista_openrouter)} modelos compatibles con texto en el catálogo.")
 
+            fuentes_clave = fuente_api_key_openrouter()
             clave_guardada_entorno = bool(obtener_api_key_openrouter())
             with st.expander(
                 "🔑 Credenciales OpenRouter" if clave_guardada_entorno
                 else "🔑 Configurar API key OpenRouter",
                 expanded=not clave_guardada_entorno,
             ):
+                if fuentes_clave["hay_dos_fuentes"]:
+                    st.info(
+                        "Hay dos fuentes de credenciales (.env/entorno y archivo privado). "
+                        "Homcloud prioriza la clave guardada desde la web."
+                    )
+                if fuentes_clave["origen"] == "archivo_privado":
+                    st.caption("Clave activa: archivo privado de este Cloud Shell.")
+                elif fuentes_clave["origen"] == "entorno_env":
+                    st.caption("Clave activa: OPENROUTER_API_KEY del entorno o .env.")
+                else:
+                    st.caption("Todavía no hay una clave persistente configurada.")
                 st.text_input(
                     "Nueva API key",
                     type="password",
@@ -3099,6 +3116,7 @@ with st.container():
                     except (OSError, ValueError) as exc:
                         st.error(f"No se pudo guardar la clave: {exc}")
                     else:
+                        st.session_state.pop("_diagnostico_key_openrouter", None)
                         st.session_state["_limpiar_key_openrouter_siguiente"] = True
                         st.rerun()
                 st.caption(
@@ -3106,7 +3124,42 @@ with st.container():
                     "No se publica en código, GitHub ni Firestore."
                 )
                 if clave_guardada_entorno:
-                    st.success("API key persistente disponible.")
+                    st.caption("✓ Hay una clave configurada (aún no se ha validado).")
+                if st.button(
+                    "🔍 Verificar API key sin consumir tokens",
+                    key="verificar_key_openrouter",
+                    disabled=not (
+                        st.session_state.get("openrouter_api_key_sesion")
+                        or obtener_api_key_openrouter()
+                    ),
+                    use_container_width=True,
+                    help="Consulta el endpoint oficial /api/v1/key. No procesa PDFs ni genera cargos por tokens.",
+                ):
+                    clave_temporal = st.session_state.get("openrouter_api_key_sesion")
+                    with st.spinner("Consultando autenticación de OpenRouter..."):
+                        verificacion = verificar_api_key_openrouter(
+                            api_key=clave_temporal if clave_temporal else None,
+                        )
+                    st.session_state["_diagnostico_key_openrouter"] = verificacion
+                diag_key = st.session_state.get("_diagnostico_key_openrouter")
+                if diag_key:
+                    if diag_key.get("ok"):
+                        st.success(
+                            "Clave reconocida por OpenRouter (HTTP 200). "
+                            "Puedes probar el modelo con texto ficticio."
+                        )
+                    else:
+                        st.error(diag_key.get("mensaje", "No se pudo verificar la clave."))
+                    st.caption(
+                        f"Origen verificado: {diag_key.get('origen', 'desconocido')} · "
+                        f"HTTP: {diag_key.get('http_status') or 'sin respuesta'}."
+                    )
+                    if diag_key.get("http_status") == 401:
+                        st.info(
+                            "Si la clave fue revocada o es incorrecta, genera otra en "
+                            "OpenRouter, pégala arriba y guárdala. "
+                            "No es un problema de modelo, timeout ni cuota."
+                        )
             if not (st.session_state.get("openrouter_api_key_sesion") or clave_guardada_entorno):
                 st.warning("Ingresa y guarda una API key para utilizar OpenRouter.")
             elif clave_guardada_entorno:
