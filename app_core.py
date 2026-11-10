@@ -19,6 +19,10 @@ from datetime import datetime
 from dotenv import load_dotenv
 from diagnostico_opencode import ejecutar_monitoreado, resumir_lote
 from opencode_compat import crear_comando_opencode, detectar_version_opencode
+from preferencias_motor import (
+    MODELO_DEEPSEEK_PREDETERMINADO, cargar_motor_preferido,
+    guardar_motor_preferido, autorizar_pago_automatico,
+)
 from openrouter_cliente import (
     ejecutar_openrouter, listar_modelos_openrouter,
     obtener_api_key_openrouter, guardar_api_key_openrouter, borrar_api_key_openrouter,
@@ -2827,6 +2831,18 @@ if st.session_state.pop("_reset_global_controles_pendiente", False):
     for tipo in TIPOS_GLOBALES:
         st.session_state.pop(f"_revision_global_vista_{tipo}", None)
 
+# Migración de la vista anterior: al cambiar la versión de homcloud, no
+# mantener en session_state la selección antigua openrouter/free.
+if st.session_state.get("_motor_preferido_ui_version") != "deepseek_v4_flash_0731_1":
+    for clave in (
+        "proveedor_ia_selector", "modelo_elegido_openrouter",
+        "modelo_manual_openrouter", "modelo_detectado_opencode",
+        "modelo_manual_opencode",
+        "filtro_modelos_openrouter", "filtro_tipo_modelos_openrouter",
+    ):
+        st.session_state.pop(clave, None)
+    st.session_state["_motor_preferido_ui_version"] = "deepseek_v4_flash_0731_1"
+
 # Los tres bloques comparten Firestore, pero los archivos locales no se modifican.
 # Primera publicación siempre explícita: no se migran valores de cuentas sin revisión.
 bloques_globales = {}
@@ -2886,8 +2902,11 @@ modelos_detectados = modelos_resultado.get("models", [])
 opcion_default_modelo = "Usar modelo por defecto de OpenCode"
 opciones_modelo = [opcion_default_modelo] + modelos_detectados
 
-modelo_local_guardado = cargar_modelo_opencode_persistente()
-modelo_guardado_previo = _seleccionar_global("modelo", {"modelo": modelo_local_guardado})["modelo"]
+# Preferencia local explícita, separada del modelo legado y del modelo global.
+# La primera apertura después de actualizar adopta DeepSeek de pago.
+# Si el usuario elige otro modelo, queda guardado en este Cloud Shell.
+modelo_local_guardado = cargar_motor_preferido()
+modelo_guardado_previo = modelo_local_guardado
 indice_modelo_guardado = 0
 modelo_manual_guardado = ""
 if modelo_guardado_previo:
@@ -3016,7 +3035,7 @@ with st.container():
             modelo_previo_openrouter = (
                 modelo_guardado_previo.split("::", 1)[1]
                 if modelo_guardado_previo.startswith("openrouter::")
-                else ROUTER_GRATUITO
+                else MODELO_DEEPSEEK_PREDETERMINADO.split("::", 1)[1]
             )
             filtro_tipo_openrouter = st.radio(
                 "Catálogo", options=["Todos", "Gratis", "Pago"],
@@ -3101,10 +3120,9 @@ with st.container():
                     )
                 else:
                     st.caption("Modelo de pago. Consulta el precio vigente en OpenRouter.")
-                st.checkbox(
-                    f"Autorizo el uso facturable de {modelo_final_openrouter}",
-                    key=f"autorizar_pago_openrouter::{modelo_final_openrouter}",
-                    help="Esta autorización se solicita nuevamente al cambiar de modelo.",
+                st.caption(
+                    "Modelo facturable seleccionado: el procesamiento utiliza créditos "
+                    "de OpenRouter automáticamente, sin confirmaciones por cada lote."
                 )
             else:
                 st.caption("Modelo gratuito: sujeto a cupos y disponibilidad.")
@@ -3205,8 +3223,8 @@ with st.container():
                 disabled=not obtener_api_key_openrouter()
                 or not modelo_valido(modelo_final_openrouter)
                 or modelo_final_openrouter.endswith(":batch")
-                or (modelo_openrouter_de_pago and not st.session_state.get(
-                    f"autorizar_pago_openrouter::{modelo_final_openrouter}", False
+                or (modelo_openrouter_de_pago and not autorizar_pago_automatico(
+                    modelo_opencode
                 )),
                 use_container_width=True,
                 help="Envía datos ficticios. Los modelos de pago pueden generar un cargo.",
@@ -3230,9 +3248,8 @@ with st.container():
                             # del endpoint de verificación sin tokens.
                             api_key=obtener_api_key_openrouter(),
                             permitir_pago=(
-                                modelo_openrouter_de_pago and bool(st.session_state.get(
-                                    f"autorizar_pago_openrouter::{modelo_final_openrouter}", False
-                                ))
+                                modelo_openrouter_de_pago
+                                and autorizar_pago_automatico(modelo_opencode)
                             ),
                         )
                 if prueba.get("ok"):
@@ -3247,10 +3264,9 @@ with st.container():
                         st.warning("La API respondió, pero el JSON no cumple el contrato.")
                 else:
                     st.error(prueba.get("error", "No se pudo conectar con el modelo."))
-            st.checkbox(
-                "Autorizo enviar los TXT de las actas a OpenRouter y al modelo seleccionado",
-                key="autorizar_datos_openrouter",
-                help="Requiere autorización institucional para tratar los datos personales.",
+            st.caption(
+                "Envío a OpenRouter autorizado para este flujo. "
+                "Los TXT se transmiten al proveedor elegido al iniciar un lote."
             )
             with st.sidebar.expander("🔐 Privacidad de OpenRouter", expanded=False):
                 st.caption(
@@ -3320,11 +3336,18 @@ with st.container():
                     else modelo_seleccionado_ui
                 )
 
-        if (modelo_opencode != modelo_local_guardado
-                and (excepciones_cuenta["modelo"] or bloques_globales["modelo"] is None)
-                and (proveedor_ia != "OpenRouter"
-                     or modelo_valido(modelo_opencode.split("::", 1)[-1]))):
-            guardar_modelo_opencode_persistente(modelo_opencode)
+        # Guardar cualquier selección explícita incluso si Firestore
+        # tiene publicado otro modelo. El ajuste de esta cuenta persiste.
+        if (
+            modelo_opencode != modelo_local_guardado
+            and (proveedor_ia != "OpenRouter"
+                 or (modelo_valido(modelo_opencode.split("::", 1)[-1])
+                     and not modelo_opencode.endswith(":batch")))
+        ):
+            try:
+                guardar_motor_preferido(modelo_opencode)
+            except (OSError, ValueError) as exc:
+                st.warning(f"No se pudo guardar el modelo predeterminado: {exc}")
 
         if modelo_opencode:
             st.success(
@@ -3343,11 +3366,8 @@ with st.container():
         else:
             st.info("Se usará el modelo por defecto de OpenCode.")
         st.caption(
-            "Modelo global compartido"
-            if (bloques_globales["modelo"] is not None
-                and not excepciones_cuenta["modelo"]
-                and modelo_opencode == modelo_guardado_previo)
-            else "Selección local o temporal; puedes publicarla globalmente"
+            "Modelo predeterminado guardado en este Cloud Shell. "
+            "Puedes cambiarlo en este selector y se conservará al reiniciar."
         )
         with st.sidebar.expander("☁️ Publicar modelo global", expanded=False):
             if st.button(
@@ -3593,12 +3613,8 @@ with st.container():
                     "asíncrono aún no está integrado en la web"
                 )
             if (not modelo_gratuito(modelo_opencode.split("::", 1)[-1])
-                    and not st.session_state.get(
-                        f"autorizar_pago_openrouter::{modelo_opencode.split('::', 1)[-1]}", False
-                    )):
-                requisitos_faltantes.append("autorizar el costo del modelo de pago")
-            if not st.session_state.get("autorizar_datos_openrouter", False):
-                requisitos_faltantes.append("autorizar el envío de datos al proveedor")
+                    and not autorizar_pago_automatico(modelo_opencode)):
+                requisitos_faltantes.append("modelo facturable no autorizado")
         elif not opencode_path:
             requisitos_faltantes.append("tener OpenCode disponible en el PATH")
 
@@ -3625,10 +3641,9 @@ with st.container():
         bool(obtener_api_key_openrouter())
         if proveedor_ia == "OpenRouter" else bool(opencode_path)
     )
-    permiso_ia = (
-        st.session_state.get("autorizar_datos_openrouter", False)
-        if proveedor_ia == "OpenRouter" else True
-    )
+    # El propietario autorizó permanentemente el envío de estos documentos.
+    # No hace falta un checkbox por visita; el envío solo ocurre al iniciar.
+    permiso_ia = True
     modelo_ia_valido = (
         (modelo_valido(modelo_opencode.split("::", 1)[-1])
          and not modelo_opencode.endswith(":batch"))
@@ -3637,9 +3652,7 @@ with st.container():
     pago_ia_autorizado = (
         proveedor_ia != "OpenRouter"
         or modelo_gratuito(modelo_opencode.split("::", 1)[-1])
-        or bool(st.session_state.get(
-            f"autorizar_pago_openrouter::{modelo_opencode.split('::', 1)[-1]}", False
-        ))
+        or autorizar_pago_automatico(modelo_opencode)
     )
     with col_right:
         st.markdown('<div class="panel-title">📊 Resumen del lote</div>', unsafe_allow_html=True)
