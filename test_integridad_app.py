@@ -74,6 +74,13 @@ class TransformacionStreamlitTests(unittest.TestCase):
         self.assertNotIn("with col_programas:", source)
         self.assertIn("st.sidebar.expander", source)
         self.assertIn("validacion_openrouter = verificar_api_key_openrouter(", source)
+        self.assertIn("modelo_local_guardado = cargar_motor_preferido()", source)
+        self.assertIn("modelo_guardado_previo = modelo_local_guardado", source)
+        self.assertIn("guardar_motor_preferido(modelo_opencode)", source)
+        self.assertIn("permiso_ia = True", source)
+        self.assertIn("autorizar_pago_automatico(modelo_opencode)", source)
+        self.assertNotIn('key="autorizar_datos_openrouter"', source)
+        self.assertNotIn('f"autorizar_pago_openrouter::', source)
         self.assertIn("api_key=obtener_api_key_openrouter()", source)
         self.assertNotIn(
             'st.session_state.get("openrouter_api_key_sesion") or obtener_api_key_openrouter()',
