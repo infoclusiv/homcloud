@@ -2873,7 +2873,10 @@ except ValueError as exc:
 def _ajustes_globales_obsoletos():
     return [
         tipo for tipo in TIPOS_GLOBALES
-        if proyectos_globales.get(tipo)
+        # El modelo se toma siempre de la preferencia local de esta cuenta:
+        # un cambio remoto solo puede bloquear prompts o timeouts compartidos.
+        if tipo != "modelo"
+        and proyectos_globales.get(tipo)
         and not excepciones_cuenta.get(tipo, False)
         and st.session_state.get(f"_revision_global_vista_{tipo}") != revisiones_globales[tipo]
     ]
@@ -3589,7 +3592,8 @@ with st.container():
             requisitos_faltantes.append("resolver el error de sincronización de ajustes globales")
         for tipo in TIPOS_GLOBALES:
             if (
-                proyectos_globales.get(tipo)
+                tipo != "modelo"
+                and proyectos_globales.get(tipo)
                 and not excepciones_cuenta.get(tipo, False)
                 and st.session_state.get(f"_revision_global_vista_{tipo}") != revisiones_globales[tipo]
             ):
