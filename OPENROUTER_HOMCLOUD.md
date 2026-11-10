@@ -3,15 +3,13 @@
 ## Configuración desde la interfaz
 
 1. Actualiza el repositorio en tu Cloud Shell y abre la aplicación.
-2. En **Proveedor de IA** selecciona **OpenRouter**.
-3. En **🔑 Configurar API key OpenRouter**, pega la clave una sola vez y pulsa **Guardar API key permanentemente en este Cloud Shell**.
-4. En **Catálogo**, elige **Todos**, **Gratis** o **Pago**.
-5. Busca por nombre o ID y selecciona **Modelo OpenRouter**. Usa **Actualizar catálogo completo** cuando necesites refrescar los precios y los modelos.
-6. Si es de pago, revisa el precio y marca **Autorizo el uso facturable de [modelo]**.
-7. Pulsa **Probar modelo con texto ficticio** antes de subir archivos reales.
-8. Revisa privacidad y autorización institucional. Empieza con un PDF y un worker.
+2. **Por defecto está seleccionado OpenRouter → `deepseek/deepseek-v4-flash-0731` (de pago)**. No hace falta volver a configurarlo en cada entrada.
+3. Si ya guardaste tu API key con **Guardar API key permanentemente**, se recuperará automáticamente.
+4. **Carga los PDFs/Excel y pulsa Iniciar procesamiento**. No se mostrarán confirmaciones repetitivas por envío de documentos ni por usar este modelo facturable.
+5. Si deseas cambiar el proveedor o el modelo, utiliza el selector: muestra Todos, Gratis y Pago y guarda la última selección automáticamente en este Cloud Shell.
+6. Revisa los precios antes de cambiar a otros modelos de pago. La aplicación utiliza el modelo escogido y OpenRouter puede cobrar por tokens; configura un límite monetario en tu cuenta de OpenRouter.
 
-El catálogo procede del endpoint oficial `GET /api/v1/models`; permite TODOS los modelos compatibles con texto, no solamente `:free`. Muestra precios USD por millón de tokens de entrada y salida cuando están disponibles; esos precios no son un techo de gasto. Los modelos pagos pueden consumir créditos incluso en pruebas sintéticas; la autorización se solicita para cada modelo por separado.
+El catálogo procede del endpoint oficial `GET /api/v1/models`; permite TODOS los modelos compatibles con texto, no solamente `:free`. Muestra precios USD por millón de tokens de entrada y salida cuando están disponibles; esos precios no son un techo de gasto. **Por petición expresa del propietario, los modelos de pago que seleccione están autorizados para procesar documentos sin casilla adicional.** Las pruebas sintéticas con modelos de pago también pueden consumir créditos.
 
 ## API key: archivo privado, no código versionado
 
@@ -70,6 +68,42 @@ En las claves creadas desde OpenRouter normalmente se usa el prefijo
 agrega automáticamente el encabezado HTTP. Nunca compartas la clave
 completa, `.env`, `settings/openrouter_api_key.txt` ni los logs crudos.
 
+## Modelo predeterminado y selección persistente
+
+Al abrir homcloud, el motor inicial es:
+
+```text
+openrouter::deepseek/deepseek-v4-flash-0731
+```
+
+**Se ejecuta de forma síncrona**, sin la espera de `:batch`, y está
+disponible desde el endpoint `/api/v1/chat/completions`. Esta decisión
+se implementó después de comprobar una respuesta HTTP 200 en menos de
+un segundo con un mensaje ficticio desde el Cloud Shell del propietario.
+
+La preferencia se almacena en un archivo local diferente a la
+configuración legada de OpenCode:
+
+```text
+settings/motor_ia_preferido.txt
+```
+
+Se utiliza el modelo predeterminado si ese archivo aún no existe.
+Al cambiar de modelo o proveedor, el programa actualiza el archivo
+automáticamente. El archivo está en `.gitignore`, por lo que no se
+versiona ni sobrescribe con `git pull`. El modelo global anterior de
+Firestore ya no desplaza el elegido en este Cloud Shell, aunque los
+prompts y los timeouts globales continúan funcionando. La configuración
+global de modelo puede seguir publicándose expresamente desde el sidebar;
+cada cuenta mantiene su selección propia.
+
+Como el uso facturable ya está autorizado para el flujo diario,
+**seleccionar otro modelo de pago puede generar cargos** al iniciar
+un lote. El botón Iniciar procesamiento es la acción explícita que
+envía los datos y genera los cargos aplicables. Se recomienda un
+límite de gasto en https://openrouter.ai/settings/keys.
+No se realizan solicitudes de inferencia solo por abrir la aplicación.
+
 ## Interfaz más compacta
 
 En Inicio se conservan solamente los controles de trabajo diario: concurrencia, proveedor/modelo, carga de PDFs o Excel, progreso, resumen, errores, reintentos y descargas.
@@ -82,7 +116,7 @@ Las opciones de sincronización, prompts, timeouts y publicación global del mod
 
 ## Integración y privacidad
 
-Con OpenRouter seleccionado se mantiene el flujo de LLMWhisperer → TXT → contrato JSON → validación Python → AHK + CSV + historial. Los modelos de pago requieren autorización explícita antes del procesamiento y de los reintentos. La interfaz limita de forma conservadora a 2 las llamadas simultáneas a OpenRouter.
+Con OpenRouter seleccionado se mantiene el flujo de LLMWhisperer → TXT → contrato JSON → validación Python → AHK + CSV + historial. El propietario autorizó de forma permanente el envío de sus documentos a OpenRouter y el uso de modelos de pago, por lo que ya no hay casillas de aprobación en cada sesión o reintento. La interfaz limita de forma conservadora a 2 las llamadas simultáneas a OpenRouter.
 
 Los TXT incluyen potencialmente datos personales académicos y serán transmitidos a OpenRouter y al proveedor seleccionado. Verifica la política institucional, las condiciones de retención de cada proveedor, la privacidad del modelo concreto y la autorización antes de enviar documentos reales.
 
