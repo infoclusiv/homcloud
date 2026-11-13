@@ -1,9 +1,10 @@
 # ChatGPT OAuth como tercer proveedor (EXPERIMENTAL / NO PRODUCCION)
 
-Este cambio está en una rama de prueba separada de main. **No es
-autorización para procesar actas reales**. Los PDFs quedan desactivados
-por defecto para ChatGPT OAuth, y DeepSeek/OpenRouter sigue siendo el
-predeterminado.
+La interfaz de ChatGPT OAuth se puede incorporar a la aplicación principal
+sin autorizar el procesamiento de actas reales. **No se habilitan PDFs reales.**
+La barrera antes de LLMWhisperer es incondicional, sin variable de entorno
+que pueda quitarla por accidente. DeepSeek/OpenRouter sigue siendo el
+predeterminado y conserva el procesamiento existente.
 
 ## Evidencia previa
 
@@ -59,10 +60,9 @@ Con ChatGPT OAuth seleccionado:
 - Los botones que procesan PDFs quedan deshabilitados.
 - Una segunda barrera en ejecutar_lote_streamlit detiene la tanda ANTES
   de gastar solicitudes LLMWhisperer.
-- Una variable de entorno específica HOMCLOUD_CHATGPT_OAUTH_ACTAS=1
-  existe para habilitación posterior. NO establecerla hasta comprobar
-  por separado elegibilidad del despliegue, permisos institucionales y
-  los límites reales de uso y retención de datos.
+- No existe un interruptor por entorno para habilitar actas en esta versión;
+  cualquier activación posterior exige un cambio de código, auditoría,
+  aprobación institucional y verificación de la elegibilidad del despliegue.
 - Para pruebas con ChatGPT OAuth, se limita a un worker; el refresh
   token se renueva con flock y reemplazo atómico.
 - El token y los mensajes HTTP nunca se copian al CSV o Firestore. Los
@@ -111,9 +111,10 @@ mediante API key.
 
 ## Pendiente de validar antes de producción
 
-1. CI y prueba de interfaz sobre esta rama en un clon separado.
-2. Revisión de permisos de acceso a la interfaz de Cloud Shell.
-3. Elegibilidad remota y privacidad institucional.
+1. CI y prueba de interfaz: validadas con casos ficticios antes de integrar.
+2. Confirmar que el acceso a Cloud Shell Web Preview continúa restringido a
+   la cuenta autenticada y que no se publica por otros medios.
+3. Elegibilidad remota y privacidad institucional antes de cualquier acta real.
 4. Medición repetida de calidad de JSON/AHK en muestra anonimizada
    con resultados de referencia confiables.
 5. Tolerancia a 401/403/429, rate limiting y expiración de sesión.

@@ -1845,16 +1845,14 @@ def ejecutar_lote_streamlit(
     # cuando la propia CLI ya no admite los modelos gratuitos seleccionados.
     modelo_preflight = (modelo_opencode or "").strip().lower()
     if modelo_preflight.startswith("chatgpt::"):
-        if os.environ.get("HOMCLOUD_CHATGPT_OAUTH_ACTAS") != "1":
-            st.error(
-                "ChatGPT OAuth está en modo experimental: documentos reales deshabilitados. "
-                "Primero verifica elegibilidad del despliegue y autorización institucional."
-            )
-            st.stop()
-        estado_oauth = estado_chatgpt_oauth()
-        if not estado_oauth.get("ok") or not modelo_preflight.split("::", 1)[1]:
-            st.error("No se inició ningún PDF: falta sesión ChatGPT OAuth o modelo válido.")
-            st.stop()
+        # Integración del selector en la app principal, NO autorización de actas.
+        # El bloqueo es incondicional, incluso si el entorno contiene
+        # variables heredadas: detener antes de llamar a LLMWhisperer.
+        st.error(
+            "ChatGPT OAuth admite solo pruebas ficticias en esta versión. "
+            "El procesamiento de PDFs académicos permanece deshabilitado."
+        )
+        st.stop()
     if modelo_preflight.startswith("openrouter::") and modelo_preflight.endswith(":batch"):
         st.error(
             "El modelo seleccionado usa OpenRouter Batch API asíncrona. "
@@ -3747,8 +3745,7 @@ with st.container():
                     and not autorizar_pago_automatico(modelo_opencode)):
                 requisitos_faltantes.append("modelo facturable no autorizado")
         elif proveedor_ia == "ChatGPT OAuth":
-            if os.environ.get("HOMCLOUD_CHATGPT_OAUTH_ACTAS") != "1":
-                requisitos_faltantes.append("validación institucional y habilitación de ChatGPT OAuth para actas")
+            requisitos_faltantes.append("procesamiento de PDFs ChatGPT OAuth bloqueado (solo pruebas ficticias)")
             if not estado_chatgpt_oauth().get("ok"):
                 requisitos_faltantes.append("sesión ChatGPT OAuth local válida")
             if not modelo_opencode.startswith("chatgpt::") or not modelo_opencode.split("::", 1)[1]:
@@ -3860,7 +3857,7 @@ with st.container():
             reintentar_click = st.button(
                 f"🔁 Reintentar {len(filas_error_panel)} PDF(s) con error",
                 disabled=not api_keys or not motor_listo or not permiso_ia or not modelo_ia_valido or not pago_ia_autorizado
-                         or (proveedor_ia == "ChatGPT OAuth" and os.environ.get("HOMCLOUD_CHATGPT_OAUTH_ACTAS") != "1")
+                         or proveedor_ia == "ChatGPT OAuth"
                          or bool(errores_globales) or bool(_ajustes_globales_obsoletos()),
                 use_container_width=True,
                 key=f"boton_reintentar_panel_{(ultimo_lote or {}).get('run_id','sin_run')}",
@@ -3950,7 +3947,7 @@ if filas_error_destacadas:
         reintentar_click_destacado = st.button(
             f"🔁 Reintentar ahora {len(filas_error_destacadas)} PDF(s) con error",
             disabled=not api_keys or not motor_listo or not permiso_ia or not modelo_ia_valido or not pago_ia_autorizado
-                         or (proveedor_ia == "ChatGPT OAuth" and os.environ.get("HOMCLOUD_CHATGPT_OAUTH_ACTAS") != "1")
+                         or proveedor_ia == "ChatGPT OAuth"
                          or bool(errores_globales) or bool(_ajustes_globales_obsoletos()),
             use_container_width=True,
             type="primary",
