@@ -156,3 +156,51 @@ primero con un único documento autorizado, con resultado de referencia.
 La confirmación técnica del operador NO sustituye la autorización
 formal de la institución ni determina por sí sola la elegibilidad
 de Sign in with ChatGPT. No activar si cualquiera de ellas falta.
+
+## Autorizar OAuth en otra cuenta: ejemplo infoclusiv
+
+En el Cloud Shell de `infoclusiv` (con `main` actualizado), preparar
+una identidad estable de HOST antes de realizar el nuevo login local:
+
+```bash
+cd ~/llmwhisperer-pdf-parser
+.venv/bin/python -m chatgpt_oauth_activacion preparar-host
+```
+
+El valor impreso de `HOST_ID` es un identificador opaco, **no es un
+token**. Cópialo al archivo `host_id.txt` del perfil AISLADO de la PoC
+Windows, dentro de `.config/homcloud-siwc-poc/`, antes de ejecutar
+`siwc_poc.py login`. Usa una configuración local distinta a la usada
+para `auxiliarregistroycontrol24`; no reutilices ni sobrescribas su
+`oauth_session.json`.
+
+Una vez completado `login` en Windows, sube únicamente el nuevo
+`oauth_session.json` mediante **Cloud Shell > Más > Subir archivo**
+abierto en la sesión Google de infoclusiv. El archivo aparecerá como
+`~/oauth_session.json` en el Shell; evita subirlo al repositorio.
+
+Ejecuta en Cloud Shell (solo para una instalación NUEVA, sin sesión previa):
+
+```bash
+umask 077
+install -d -m 700 ~/.config/homcloud-siwc-poc
+test -s ~/oauth_session.json || { echo "No se cargó la sesión privada"; exit 1; }
+test ! -e ~/.config/homcloud-siwc-poc/oauth_session.json || {
+  echo "Ya hay una sesión: no se sobrescribió"; exit 1;
+}
+install -m 600 ~/oauth_session.json ~/.config/homcloud-siwc-poc/oauth_session.json
+rm -f ~/oauth_session.json
+.venv/bin/python - <<'PY'
+from chatgpt_oauth_cliente import estado_chatgpt_oauth, listar_modelos_chatgpt_oauth
+status = estado_chatgpt_oauth()
+print("SESION_OK:", status.get("ok"))
+if status.get("ok"):
+    catalogo = listar_modelos_chatgpt_oauth()
+    print("CATALOGO_OK:", catalogo.get("ok"))
+    print("NUM_MODELOS:", len(catalogo.get("models") or []))
+PY
+```
+
+Jamás compartas el contenido del archivo OAuth ni imprimas los tokens.
+Si se cambia de cuenta ChatGPT o de host, la autorización local de actas
+se invalida automáticamente y hay que revisar la configuración.

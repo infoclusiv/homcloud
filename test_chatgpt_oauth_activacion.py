@@ -37,6 +37,10 @@ class ActivacionTests(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
 
+    def test_preparar_host_conserva_id_anterior(self):
+        a._host_id_si_ausente()
+        self.assertEqual(self.host.read_text(encoding="utf-8"), "host-ficticio-uno")
+
     def test_sin_autorizacion_bloquea(self):
         self.assertFalse(a.consultar_activacion_actas()["ok"])
 

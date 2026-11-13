@@ -79,10 +79,14 @@ def _host_id_si_ausente() -> None:
     CONFIG_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
     if CONFIG_DIR.is_symlink():
         raise ValueError("Carpeta OAuth insegura.")
-    # Crear de forma exclusiva; nunca sobrescribir el host_id ya registrado.
-    with HOST_ID_PATH.open("x", encoding="utf-8") as fh:
+    # Crear con permisos 0600 desde el primer instante y de forma exclusiva.
+    fd = os.open(
+        HOST_ID_PATH,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+        0o600,
+    )
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write(str(uuid.uuid4()) + "\n")
-    HOST_ID_PATH.chmod(0o600)
 
 
 def habilitar_interactivo() -> bool:
@@ -140,8 +144,15 @@ def deshabilitar() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Control local de actas ChatGPT OAuth")
-    parser.add_argument("accion", choices=["estado", "habilitar", "deshabilitar"])
+    parser.add_argument(
+        "accion", choices=["preparar-host", "estado", "habilitar", "deshabilitar"]
+    )
     args = parser.parse_args()
+    if args.accion == "preparar-host":
+        _host_id_si_ausente()
+        print("HOST_ID (no es un secreto; conservar para el login local):")
+        print(HOST_ID_PATH.read_text(encoding="utf-8").strip())
+        return 0
     if args.accion == "estado":
         estado = consultar_activacion_actas()
         print("HABILITADO" if estado["ok"] else "BLOQUEADO")
