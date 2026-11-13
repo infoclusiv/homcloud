@@ -34,7 +34,8 @@ class TestChatGPTOAuth(unittest.TestCase):
         chunks = [evento("response.output_text.delta", delta='{"estado":'),
                   evento("response.output_text.delta", delta='"ok"}'),
                   evento("response.completed")]
-        got = o._read_events(o._sse_events(chunks))
+        lines = [line for chunk in chunks for line in chunk.splitlines(keepends=True)]
+        got = o._read_events(o._sse_events(lines))
         self.assertEqual(got, '{"estado":"ok"}')
 
     def test_incompleto_falla(self):
