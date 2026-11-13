@@ -114,6 +114,7 @@ class TestChatGPTOAuth(unittest.TestCase):
                 "access_token": "caducado", "refresh_token": "rotar",
                 "expires_at": 0, "scopes": list(o.SCOPES_NECESARIOS),
             }), encoding="utf-8")
+            session.chmod(0o600)
             calls = []
             def fake_urlopen(req, timeout):
                 calls.append(1)
