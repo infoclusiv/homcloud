@@ -167,8 +167,14 @@ cd ~/llmwhisperer-pdf-parser
 .venv/bin/python -m chatgpt_oauth_activacion preparar-host
 ```
 
-El valor impreso de `HOST_ID` es un identificador opaco, **no es un
-token**. Cópialo al archivo `host_id.txt` del perfil AISLADO de la PoC
+El valor impreso de `HOST_ID` debe comenzar por `urn:uuid:` (formato
+requerido por `siwc_poc.py`). **No es un token ni una contraseña.**
+Las versiones anteriores de Homcloud generaban por error solo el UUID
+sin ese prefijo. Repetir `preparar-host` lo corrige sin cambiar el UUID
+únicamente cuando todavía no hay sesión OAuth ni autorización local;
+nunca sobrescribe una identidad ya asociada a credenciales.
+
+Cópialo al archivo `host_id.txt` del perfil AISLADO de la PoC
 Windows, dentro de `.config/homcloud-siwc-poc/`, antes de ejecutar
 `siwc_poc.py login`. Usa una configuración local distinta a la usada
 para `auxiliarregistroycontrol24`; no reutilices ni sobrescribas su

@@ -12,11 +12,12 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import tempfile
 import uuid
 
-from chatgpt_oauth_cliente import CONFIG_DIR, _session, estado_chatgpt_oauth
+from chatgpt_oauth_cliente import CONFIG_DIR, SESSION_PATH, _session, estado_chatgpt_oauth
 
 VERSION = 1
 ARCHIVO_AUTORIZACION = (
@@ -24,6 +25,20 @@ ARCHIVO_AUTORIZACION = (
 )
 HOST_ID_PATH = CONFIG_DIR / "host_id.txt"
 FRASE_CONFIRMACION = "CONFIRMO AUTORIZACION INSTITUCIONAL"
+UUID_RE = re.compile(r"^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$")
+
+
+def _guardar_host_id(valor: str) -> None:
+    """Reemplazo atómico, siempre 0600; no expone identificadores OAuth."""
+    fd, name = tempfile.mkstemp(prefix=".host_id_", dir=HOST_ID_PATH.parent)
+    temporal = Path(name)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(valor + "\n")
+        os.replace(temporal, HOST_ID_PATH)
+    finally:
+        temporal.unlink(missing_ok=True)
 
 
 def _huella_sesion() -> str:
@@ -75,7 +90,20 @@ def _host_id_si_ausente() -> None:
     if HOST_ID_PATH.exists():
         if not HOST_ID_PATH.is_file():
             raise ValueError("Identificador del host inválido.")
-        return
+        actual = HOST_ID_PATH.read_text(encoding="utf-8").strip()
+        if actual.startswith("urn:uuid:") and UUID_RE.fullmatch(actual[9:]):
+            return
+        if UUID_RE.fullmatch(actual):
+            # Corrige exclusivamente el formato legado generado por Homcloud.
+            # Nunca modifica un host asociado a credenciales/activación previas.
+            if SESSION_PATH.exists() or ARCHIVO_AUTORIZACION.exists():
+                raise ValueError(
+                    "Host ID antiguo vinculado a sesión o autorización existente; "
+                    "no se modificó."
+                )
+            _guardar_host_id("urn:uuid:" + actual)
+            return
+        raise ValueError("Host ID inválido; no se modificó.")
     CONFIG_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
     if CONFIG_DIR.is_symlink():
         raise ValueError("Carpeta OAuth insegura.")
@@ -86,7 +114,7 @@ def _host_id_si_ausente() -> None:
         0o600,
     )
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(str(uuid.uuid4()) + "\n")
+        fh.write("urn:uuid:" + str(uuid.uuid4()) + "\n")
 
 
 def habilitar_interactivo() -> bool:
