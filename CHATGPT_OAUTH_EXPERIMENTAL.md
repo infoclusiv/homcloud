@@ -1,10 +1,11 @@
-# ChatGPT OAuth como tercer proveedor (EXPERIMENTAL / NO PRODUCCION)
+# ChatGPT OAuth como tercer proveedor (ACTIVACIÓN CONTROLADA)
 
-La interfaz de ChatGPT OAuth se puede incorporar a la aplicación principal
-sin autorizar el procesamiento de actas reales. **No se habilitan PDFs reales.**
-La barrera antes de LLMWhisperer es incondicional, sin variable de entorno
-que pueda quitarla por accidente. DeepSeek/OpenRouter sigue siendo el
-predeterminado y conserva el procesamiento existente.
+El procesamiento de actas reales **permanece deshabilitado por defecto**.
+Solo se habilita individualmente en un Cloud Shell después de verificar
+autorización institucional, elegibilidad de la integración, la sesión
+OAuth y el catálogo del modelo. La barrera previa a LLMWhisperer falla
+en modo seguro cuando falta cualquiera de los controles. DeepSeek/OpenRouter
+continúan como predeterminados y conservan su funcionamiento.
 
 ## Evidencia previa
 
@@ -18,11 +19,11 @@ Pruebas aisladas en Cloud Shell (2026-11-12, sesión personal del dueño):
 - Pruebas sintéticas != validación del mundo real. No aseguran exactitud
   ni ausencia de alucinaciones en actas reales.
 
-## Uso de la rama
+## Despliegue y credenciales
 
-No hagas checkout de esta rama en el entorno de producción mientras
-proceses un lote. Usa un clon de prueba separado de ~/homcloud o revisa
-la PR primero; no borres datos, .env, sesiones ni preferencias.
+Actualiza la rama principal mediante `git pull --ff-only origin main`
+solo cuando no haya lotes en ejecución. Conserva credenciales, datos,
+preferencias, `.env`, `uploads/` y `outputs/` locales.
 
 La cuenta de Cloud Shell debe contar con su propia autorización OAuth.
 El cliente usa exclusivamente
@@ -57,13 +58,12 @@ LLMWhisperer. No subas actas reales en esta fase.
 ## Protección de producción
 
 Con ChatGPT OAuth seleccionado:
-- Los botones que procesan PDFs quedan deshabilitados.
-- Una segunda barrera en ejecutar_lote_streamlit detiene la tanda ANTES
-  de gastar solicitudes LLMWhisperer.
-- No existe un interruptor por entorno para habilitar actas en esta versión;
-  cualquier activación posterior exige un cambio de código, auditoría,
-  aprobación institucional y verificación de la elegibilidad del despliegue.
-- Para pruebas con ChatGPT OAuth, se limita a un worker; el refresh
+- Sin autorización local por host, los botones de PDF y reintentos se
+  deshabilitan; el preflight detiene la tanda ANTES de LLMWhisperer.
+- La activación local exige confirmación interactiva de las condiciones
+  institucionales y la elegibilidad, y se vincula a sesión y host.
+- Nunca basta una variable de entorno para habilitar las actas en masa.
+- Todos los lotes ChatGPT OAuth se limitan a un worker; el refresh
   token se renueva con flock y reemplazo atómico.
 - El token y los mensajes HTTP nunca se copian al CSV o Firestore. Los
   textos de origen y resultados siguen sujetos a las reglas normales
@@ -120,7 +120,7 @@ mediante API key.
 5. Tolerancia a 401/403/429, rate limiting y expiración de sesión.
 6. Revisión humana de cualquier AHK antes de ejecutarlo en Banner.
 
-## Nueva activación individual y consciente (versión posterior)
+## Activación individual y consciente
 
 El proveedor puede procesar PDFs reales solo si el administrador confirma
 en la terminal de CADA Cloud Shell el tratamiento institucional permitido

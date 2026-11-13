@@ -89,10 +89,11 @@ prueba el modelo con 1 archivo y concurrencia de 1.
 
 Para compartir los prompts de Pregrado/Posgrado, modelo OpenCode, timeouts, concurrencia y retención, consulta [PREFERENCIAS_Y_RETENCION.md](PREFERENCIAS_Y_RETENCION.md). La publicación inicial de prompts/modelo/timeouts es manual; los archivos locales no se sobrescriben, y cada cuenta puede mantener excepciones locales. Ejecuta `python -m unittest test_configuracion_global test_operativa_compartida test_recuperacion_lotes test_integridad_app -v` tras actualizar el repositorio.
 
-## ChatGPT OAuth en la interfaz principal (solo texto ficticio)
+## ChatGPT OAuth en la interfaz principal (prueba ficticia y activación controlada)
 
-El proveedor experimental puede estar visible en la app del puerto 8080
-sin alterar DeepSeek/OpenRouter ni procesar actas reales con ChatGPT OAuth.
+El proveedor aparece en el puerto 8080 sin alterar DeepSeek/OpenRouter.
+Por defecto solo admite pruebas ficticias; los PDFs reales requieren
+activación por Cloud Shell y autorización institucional previa.
 
 - Se usa la sesión privada de la MISMA cuenta Cloud Shell que ejecuta
   la app: `~/.config/homcloud-siwc-poc/oauth_session.json` (jamás en Git).
@@ -100,17 +101,18 @@ sin alterar DeepSeek/OpenRouter ni procesar actas reales con ChatGPT OAuth.
   `settings/razonamiento_chatgpt_oauth.txt`; es independiente de la
   preferencia del proveedor y de Firestore.
 - Las pruebas de inferencia únicamente envían texto ficticio.
-- El procesamiento de PDFs con ChatGPT OAuth está **bloqueado sin excepción**,
-  antes de invocar LLMWhisperer; los botones de iniciar y reintentar también
-  se deshabilitan. Ninguna variable de entorno permite levantar esta barrera.
+- Sin autorización local válida, los PDFs con ChatGPT OAuth quedan bloqueados
+  antes de LLMWhisperer, incluidos los reintentos. No existe variable de
+  entorno que habilite globalmente todas las cuentas. La habilitación requiere
+  `python -m chatgpt_oauth_activacion habilitar` por instancia.
 - Para usarlo desde el puerto principal, actualiza `main` después de que
   las pruebas hayan aprobado, e inicia `bash ./run_cloudshell.sh` desde
   tu CLON PRINCIPAL; el clon experimental en otro puerto queda independiente.
 - El estado de la sesión y el nivel de razonamiento no se copian por Git.
   El archivo de preferencias de razonamiento puede trasladarse manualmente
   entre clones del MISMO Cloud Shell si se desea mantener el nivel.
-- No se ejecutan estas pruebas con documentos académicos reales.
-  La elegibilidad y privacidad institucional requieren evaluación separada.
+- El botón de prueba sintética nunca usa documentos académicos reales.
+  El flujo de PDFs requiere evaluación separada de elegibilidad y privacidad.
 
 Consulta `CHATGPT_OAUTH_EXPERIMENTAL.md` para detalles y limitaciones.
 
