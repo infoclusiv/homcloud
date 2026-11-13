@@ -3706,6 +3706,13 @@ with st.container():
             if (not modelo_gratuito(modelo_opencode.split("::", 1)[-1])
                     and not autorizar_pago_automatico(modelo_opencode)):
                 requisitos_faltantes.append("modelo facturable no autorizado")
+        elif proveedor_ia == "ChatGPT OAuth":
+            if os.environ.get("HOMCLOUD_CHATGPT_OAUTH_ACTAS") != "1":
+                requisitos_faltantes.append("validación institucional y habilitación de ChatGPT OAuth para actas")
+            if not estado_chatgpt_oauth().get("ok"):
+                requisitos_faltantes.append("sesión ChatGPT OAuth local válida")
+            if not modelo_opencode.startswith("chatgpt::") or not modelo_opencode.split("::", 1)[1]:
+                requisitos_faltantes.append("seleccionar un modelo ChatGPT OAuth")
         elif not opencode_path:
             requisitos_faltantes.append("tener OpenCode disponible en el PATH")
 
@@ -3725,12 +3732,15 @@ with st.container():
                 "Los archivos PDF se procesan en este Cloud Shell; "
                 + ("el TXT se envía a OpenRouter y su proveedor de IA."
                    if proveedor_ia == "OpenRouter"
-                   else "el análisis se envía al proveedor configurado en OpenCode.")
+                   else ("el TXT se envía a OpenAI mediante ChatGPT OAuth."
+                         if proveedor_ia == "ChatGPT OAuth"
+                         else "el análisis se envía al proveedor configurado en OpenCode."))
             )
 
     motor_listo = (
-        bool(obtener_api_key_openrouter())
-        if proveedor_ia == "OpenRouter" else bool(opencode_path)
+        bool(obtener_api_key_openrouter()) if proveedor_ia == "OpenRouter"
+        else (estado_chatgpt_oauth().get("ok") if proveedor_ia == "ChatGPT OAuth"
+              else bool(opencode_path))
     )
     # El propietario autorizó permanentemente el envío de estos documentos.
     # No hace falta un checkbox por visita; el envío solo ocurre al iniciar.
@@ -3738,7 +3748,9 @@ with st.container():
     modelo_ia_valido = (
         (modelo_valido(modelo_opencode.split("::", 1)[-1])
          and not modelo_opencode.endswith(":batch"))
-        if proveedor_ia == "OpenRouter" else True
+        if proveedor_ia == "OpenRouter"
+        else (bool(modelo_opencode.startswith("chatgpt::") and modelo_opencode.split("::", 1)[1])
+              if proveedor_ia == "ChatGPT OAuth" else True)
     )
     pago_ia_autorizado = (
         proveedor_ia != "OpenRouter"
@@ -3808,6 +3820,7 @@ with st.container():
             reintentar_click = st.button(
                 f"🔁 Reintentar {len(filas_error_panel)} PDF(s) con error",
                 disabled=not api_keys or not motor_listo or not permiso_ia or not modelo_ia_valido or not pago_ia_autorizado
+                         or (proveedor_ia == "ChatGPT OAuth" and os.environ.get("HOMCLOUD_CHATGPT_OAUTH_ACTAS") != "1")
                          or bool(errores_globales) or bool(_ajustes_globales_obsoletos()),
                 use_container_width=True,
                 key=f"boton_reintentar_panel_{(ultimo_lote or {}).get('run_id','sin_run')}",
@@ -3897,6 +3910,7 @@ if filas_error_destacadas:
         reintentar_click_destacado = st.button(
             f"🔁 Reintentar ahora {len(filas_error_destacadas)} PDF(s) con error",
             disabled=not api_keys or not motor_listo or not permiso_ia or not modelo_ia_valido or not pago_ia_autorizado
+                         or (proveedor_ia == "ChatGPT OAuth" and os.environ.get("HOMCLOUD_CHATGPT_OAUTH_ACTAS") != "1")
                          or bool(errores_globales) or bool(_ajustes_globales_obsoletos()),
             use_container_width=True,
             type="primary",
