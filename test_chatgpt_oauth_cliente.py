@@ -136,18 +136,16 @@ class TestChatGPTOAuth(unittest.TestCase):
                 self.assertIn("razonamiento", ans["error"])
                 red.assert_not_called()
 
-    def test_la_interfaz_principal_bloquea_pdfs_aunque_haya_variable_de_entorno(self):
-        # Prueba estática deliberada: no importa app_core.py porque Streamlit
-        # arranca servicios/conexiones. El guard debe ser incondicional.
+    def test_la_interfaz_principal_exige_permiso_local_antes_de_extraer_pdf(self):
+        # Prueba estática: no importar app_core.py (inicia Streamlit).
         src = Path(__file__).with_name("app_core.py").read_text(encoding="utf-8")
-        self.assertIn(
-            'if modelo_preflight.startswith("chatgpt::"):\\n        #'.replace("\\n", "\n"), src
-        )
-        self.assertIn("st.stop()", src[src.index(
-            'if modelo_preflight.startswith("chatgpt::"):'
-        ):src.index('if modelo_preflight.startswith("openrouter::")')])
+        guard = src[src.index('if modelo_preflight.startswith("chatgpt::"):'):
+                    src.index('if modelo_preflight.startswith("openrouter::")')]
+        self.assertIn("consultar_activacion_actas()", guard)
+        self.assertIn("st.stop()", guard)
+        self.assertIn("listar_modelos_chatgpt_oauth()", guard)
         self.assertNotIn("HOMCLOUD_CHATGPT_OAUTH_ACTAS", src)
-        self.assertIn('or proveedor_ia == "ChatGPT OAuth"', src)
+        self.assertIn('not consultar_activacion_actas()["ok"]', src)
 
     def test_modelo_malicioso_no_inicia_red(self):
         ans = o.ejecutar_chatgpt_oauth(

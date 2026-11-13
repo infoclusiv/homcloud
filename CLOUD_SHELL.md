@@ -89,10 +89,11 @@ prueba el modelo con 1 archivo y concurrencia de 1.
 
 Para compartir los prompts de Pregrado/Posgrado, modelo OpenCode, timeouts, concurrencia y retención, consulta [PREFERENCIAS_Y_RETENCION.md](PREFERENCIAS_Y_RETENCION.md). La publicación inicial de prompts/modelo/timeouts es manual; los archivos locales no se sobrescriben, y cada cuenta puede mantener excepciones locales. Ejecuta `python -m unittest test_configuracion_global test_operativa_compartida test_recuperacion_lotes test_integridad_app -v` tras actualizar el repositorio.
 
-## ChatGPT OAuth en la interfaz principal (solo texto ficticio)
+## ChatGPT OAuth en la interfaz principal (prueba ficticia y activación controlada)
 
-El proveedor experimental puede estar visible en la app del puerto 8080
-sin alterar DeepSeek/OpenRouter ni procesar actas reales con ChatGPT OAuth.
+El proveedor aparece en el puerto 8080 sin alterar DeepSeek/OpenRouter.
+Por defecto solo admite pruebas ficticias; los PDFs reales requieren
+activación por Cloud Shell y autorización institucional previa.
 
 - Se usa la sesión privada de la MISMA cuenta Cloud Shell que ejecuta
   la app: `~/.config/homcloud-siwc-poc/oauth_session.json` (jamás en Git).
@@ -100,16 +101,106 @@ sin alterar DeepSeek/OpenRouter ni procesar actas reales con ChatGPT OAuth.
   `settings/razonamiento_chatgpt_oauth.txt`; es independiente de la
   preferencia del proveedor y de Firestore.
 - Las pruebas de inferencia únicamente envían texto ficticio.
-- El procesamiento de PDFs con ChatGPT OAuth está **bloqueado sin excepción**,
-  antes de invocar LLMWhisperer; los botones de iniciar y reintentar también
-  se deshabilitan. Ninguna variable de entorno permite levantar esta barrera.
+- Sin autorización local válida, los PDFs con ChatGPT OAuth quedan bloqueados
+  antes de LLMWhisperer, incluidos los reintentos. No existe variable de
+  entorno que habilite globalmente todas las cuentas. La habilitación requiere
+  `python -m chatgpt_oauth_activacion habilitar` por instancia.
 - Para usarlo desde el puerto principal, actualiza `main` después de que
   las pruebas hayan aprobado, e inicia `bash ./run_cloudshell.sh` desde
   tu CLON PRINCIPAL; el clon experimental en otro puerto queda independiente.
 - El estado de la sesión y el nivel de razonamiento no se copian por Git.
   El archivo de preferencias de razonamiento puede trasladarse manualmente
   entre clones del MISMO Cloud Shell si se desea mantener el nivel.
-- No se ejecutan estas pruebas con documentos académicos reales.
-  La elegibilidad y privacidad institucional requieren evaluación separada.
+- El botón de prueba sintética nunca usa documentos académicos reales.
+  El flujo de PDFs requiere evaluación separada de elegibilidad y privacidad.
 
 Consulta `CHATGPT_OAUTH_EXPERIMENTAL.md` para detalles y limitaciones.
+
+## Habilitación controlada de actas reales con ChatGPT OAuth
+
+**No se activa de forma automática al actualizar Git.** Cada Cloud Shell
+requiere una sesión OAuth propia y una declaración local explícita, tras
+confirmar que existen permisos institucionales para enviar datos académicos
+a LLMWhisperer y a OpenAI, así como que el despliegue cumple con SIWC.
+
+Comandos dentro del clon principal de CADA cuenta, con OAuth ya importado:
+
+```bash
+cd ~/homcloud
+.venv/bin/python -m chatgpt_oauth_activacion estado
+.venv/bin/python -m chatgpt_oauth_activacion habilitar
+.venv/bin/python -m chatgpt_oauth_activacion estado
+```
+
+En infoclusiv el clon principal suele estar en
+`~/llmwhisperer-pdf-parser` y no en `~/homcloud`.
+
+La habilitación requiere escribir exactamente la frase solicitada,
+y se guarda en `settings/chatgpt_oauth_actas_autorizado.json` con permisos
+0600 y una huella no reversible de sesión/host. No contiene contraseñas,
+tokens ni datos académicos. La preferencia no se sube a GitHub, no se
+comparte entre Cloud Shell y se invalida al cambiar de sesión/host.
+
+Para REVOCAR inmediatamente en una cuenta:
+
+```bash
+.venv/bin/python -m chatgpt_oauth_activacion deshabilitar
+```
+
+Preflight: si falta autorización, sesión o el modelo no existe en el
+catálogo del plan, el procesamiento se detiene ANTES de LLMWhisperer.
+La concurrencia OAuth continúa limitada a un worker. Los AHK deben
+inspeccionarse manualmente antes de ejecutarlos en Banner. Prueba
+primero con un único documento autorizado, con resultado de referencia.
+
+La confirmación técnica del operador NO sustituye la autorización
+formal de la institución ni determina por sí sola la elegibilidad
+de Sign in with ChatGPT. No activar si cualquiera de ellas falta.
+
+## Autorizar OAuth en otra cuenta: ejemplo infoclusiv
+
+En el Cloud Shell de `infoclusiv` (con `main` actualizado), preparar
+una identidad estable de HOST antes de realizar el nuevo login local:
+
+```bash
+cd ~/llmwhisperer-pdf-parser
+.venv/bin/python -m chatgpt_oauth_activacion preparar-host
+```
+
+El valor impreso de `HOST_ID` es un identificador opaco, **no es un
+token**. Cópialo al archivo `host_id.txt` del perfil AISLADO de la PoC
+Windows, dentro de `.config/homcloud-siwc-poc/`, antes de ejecutar
+`siwc_poc.py login`. Usa una configuración local distinta a la usada
+para `auxiliarregistroycontrol24`; no reutilices ni sobrescribas su
+`oauth_session.json`.
+
+Una vez completado `login` en Windows, sube únicamente el nuevo
+`oauth_session.json` mediante **Cloud Shell > Más > Subir archivo**
+abierto en la sesión Google de infoclusiv. El archivo aparecerá como
+`~/oauth_session.json` en el Shell; evita subirlo al repositorio.
+
+Ejecuta en Cloud Shell (solo para una instalación NUEVA, sin sesión previa):
+
+```bash
+umask 077
+install -d -m 700 ~/.config/homcloud-siwc-poc
+test -s ~/oauth_session.json || { echo "No se cargó la sesión privada"; exit 1; }
+test ! -e ~/.config/homcloud-siwc-poc/oauth_session.json || {
+  echo "Ya hay una sesión: no se sobrescribió"; exit 1;
+}
+install -m 600 ~/oauth_session.json ~/.config/homcloud-siwc-poc/oauth_session.json
+rm -f ~/oauth_session.json
+.venv/bin/python - <<'PY'
+from chatgpt_oauth_cliente import estado_chatgpt_oauth, listar_modelos_chatgpt_oauth
+status = estado_chatgpt_oauth()
+print("SESION_OK:", status.get("ok"))
+if status.get("ok"):
+    catalogo = listar_modelos_chatgpt_oauth()
+    print("CATALOGO_OK:", catalogo.get("ok"))
+    print("NUM_MODELOS:", len(catalogo.get("models") or []))
+PY
+```
+
+Jamás compartas el contenido del archivo OAuth ni imprimas los tokens.
+Si se cambia de cuenta ChatGPT o de host, la autorización local de actas
+se invalida automáticamente y hay que revisar la configuración.

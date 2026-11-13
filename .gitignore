@@ -49,6 +49,8 @@ settings/modelo_opencode.txt
 settings/motor_ia_preferido.txt
 # Nivel de razonamiento ChatGPT OAuth: preferencia local privada, no sincronizar
 settings/razonamiento_chatgpt_oauth.txt
+# Autorización local de procesamiento académico con ChatGPT OAuth, por host
+settings/chatgpt_oauth_actas_autorizado.json
 
 # Shared sync: local project selection and backups
 settings/cloud_sync.json
