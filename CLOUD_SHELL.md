@@ -113,3 +113,44 @@ sin alterar DeepSeek/OpenRouter ni procesar actas reales con ChatGPT OAuth.
   La elegibilidad y privacidad institucional requieren evaluación separada.
 
 Consulta `CHATGPT_OAUTH_EXPERIMENTAL.md` para detalles y limitaciones.
+
+## Habilitación controlada de actas reales con ChatGPT OAuth
+
+**No se activa de forma automática al actualizar Git.** Cada Cloud Shell
+requiere una sesión OAuth propia y una declaración local explícita, tras
+confirmar que existen permisos institucionales para enviar datos académicos
+a LLMWhisperer y a OpenAI, así como que el despliegue cumple con SIWC.
+
+Comandos dentro del clon principal de CADA cuenta, con OAuth ya importado:
+
+```bash
+cd ~/homcloud
+.venv/bin/python -m chatgpt_oauth_activacion estado
+.venv/bin/python -m chatgpt_oauth_activacion habilitar
+.venv/bin/python -m chatgpt_oauth_activacion estado
+```
+
+En infoclusiv el clon principal suele estar en
+`~/llmwhisperer-pdf-parser` y no en `~/homcloud`.
+
+La habilitación requiere escribir exactamente la frase solicitada,
+y se guarda en `settings/chatgpt_oauth_actas_autorizado.json` con permisos
+0600 y una huella no reversible de sesión/host. No contiene contraseñas,
+tokens ni datos académicos. La preferencia no se sube a GitHub, no se
+comparte entre Cloud Shell y se invalida al cambiar de sesión/host.
+
+Para REVOCAR inmediatamente en una cuenta:
+
+```bash
+.venv/bin/python -m chatgpt_oauth_activacion deshabilitar
+```
+
+Preflight: si falta autorización, sesión o el modelo no existe en el
+catálogo del plan, el procesamiento se detiene ANTES de LLMWhisperer.
+La concurrencia OAuth continúa limitada a un worker. Los AHK deben
+inspeccionarse manualmente antes de ejecutarlos en Banner. Prueba
+primero con un único documento autorizado, con resultado de referencia.
+
+La confirmación técnica del operador NO sustituye la autorización
+formal de la institución ni determina por sí sola la elegibilidad
+de Sign in with ChatGPT. No activar si cualquiera de ellas falta.

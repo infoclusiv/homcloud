@@ -119,3 +119,22 @@ mediante API key.
    con resultados de referencia confiables.
 5. Tolerancia a 401/403/429, rate limiting y expiración de sesión.
 6. Revisión humana de cualquier AHK antes de ejecutarlo en Banner.
+
+## Nueva activación individual y consciente (versión posterior)
+
+El proveedor puede procesar PDFs reales solo si el administrador confirma
+en la terminal de CADA Cloud Shell el tratamiento institucional permitido
+y la elegibilidad del despliegue mediante:
+`python -m chatgpt_oauth_activacion habilitar`.
+
+El interruptor local se vincula a la identidad OAuth y al identificador
+estable del host; no hay variable de entorno que habilite todo globalmente.
+Ausencia de autorización, corrupción, permisos incorrectos, cambio de
+identidad o modelo indisponible bloquean la tanda antes de llamar a
+LLMWhisperer. Los reintentos respetan la misma barrera.
+Para revocar: `python -m chatgpt_oauth_activacion deshabilitar`.
+
+La declaración local no demuestra que una institución haya concedido
+autorización: antes de activarla debe existir dicha aprobación verificable.
+El procesamiento con terceros incluye LLMWhisperer y OpenAI, y continúa
+sujeto a políticas de retención, confidencialidad y revisión de resultados.
