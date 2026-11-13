@@ -47,6 +47,8 @@ settings/timeouts.json
 settings/modelo_opencode.txt
 # Preferencia local de IA, independiente del modelo global publicado
 settings/motor_ia_preferido.txt
+# Nivel de razonamiento ChatGPT OAuth: preferencia local privada, no sincronizar
+settings/razonamiento_chatgpt_oauth.txt
 
 # Shared sync: local project selection and backups
 settings/cloud_sync.json

@@ -22,6 +22,11 @@ from opencode_compat import crear_comando_opencode, detectar_version_opencode
 from preferencias_motor import (
     MODELO_DEEPSEEK_PREDETERMINADO, cargar_motor_preferido,
     guardar_motor_preferido, autorizar_pago_automatico,
+    RAZONAMIENTOS_CHATGPT_OAUTH, cargar_razonamiento_chatgpt_oauth,
+    guardar_razonamiento_chatgpt_oauth,
+)
+from chatgpt_oauth_cliente import (
+    estado_chatgpt_oauth, listar_modelos_chatgpt_oauth, ejecutar_chatgpt_oauth,
 )
 from openrouter_cliente import (
     ejecutar_openrouter, listar_modelos_openrouter,
@@ -844,6 +849,13 @@ def ejecutar_opencode(
     Los logs originales quedan en la carpeta privada del worker durante
     la retención del lote; jamás se envía el prompt a los metadatos de estado.
     """
+    if (modelo_opencode or "").startswith("chatgpt::"):
+        return ejecutar_chatgpt_oauth(
+            prompt=prompt, txt_path=txt_path,
+            modelo=modelo_opencode.split("::", 1)[1],
+            timeout_segundos=timeout_segundos, cancelar=cancelar,
+            esfuerzo_razonamiento=cargar_razonamiento_chatgpt_oauth(),
+        )
     # OpenRouter se integra como motor de inferencia alternativo: no necesita
     # OpenCode CLI ni altera el contrato JSON que valida Python.
     if (modelo_opencode or "").startswith("openrouter::"):
@@ -1344,11 +1356,14 @@ def procesar_pdf(
     )
 
     reportar(
-        "OpenRouter API" if (modelo_opencode or "").startswith("openrouter::") else "OpenCode CLI",
+        ("ChatGPT OAuth" if (modelo_opencode or "").startswith("chatgpt::")
+         else ("OpenRouter API" if (modelo_opencode or "").startswith("openrouter::") else "OpenCode CLI")),
         0.62,
-        (f"Consultando OpenRouter API: {modelo_opencode.split('::', 1)[1]}."
-         if (modelo_opencode or "").startswith("openrouter::")
-         else f"Ejecutando análisis con OpenCode. Modelo: {modelo_opencode or 'Default OpenCode'}."),
+        (f"Consultando ChatGPT OAuth: {modelo_opencode.split('::', 1)[1]}."
+         if (modelo_opencode or "").startswith("chatgpt::")
+         else (f"Consultando OpenRouter API: {modelo_opencode.split('::', 1)[1]}."
+               if (modelo_opencode or "").startswith("openrouter::")
+               else f"Ejecutando análisis con OpenCode. Modelo: {modelo_opencode or 'Default OpenCode'}.")),
     )
 
     inicio_opencode = time.time()
@@ -1364,7 +1379,7 @@ def procesar_pdf(
         timeout_segundos=(
             min(timeout_opencode_segundos,
                 max(5, int(timeout_pdf_segundos - (time.time() - inicio_pdf) - 12)))
-            if (modelo_opencode or "").startswith("openrouter::")
+            if (modelo_opencode or "").startswith(("openrouter::", "chatgpt::"))
             else timeout_opencode_segundos
         ),
         cancelar=cancelar,
@@ -1387,8 +1402,9 @@ def procesar_pdf(
 
     if not resultado_opencode.get("ok"):
         nombre_error_proveedor = (
-            "Error OpenRouter" if (modelo_opencode or "").startswith("openrouter::")
-            else "Error OpenCode"
+            "Error ChatGPT OAuth" if (modelo_opencode or "").startswith("chatgpt::")
+            else ("Error OpenRouter" if (modelo_opencode or "").startswith("openrouter::")
+                  else "Error OpenCode")
         )
         fila["Estado"] = nombre_error_proveedor
         fila["Fase actual"] = nombre_error_proveedor
@@ -1402,7 +1418,9 @@ def procesar_pdf(
             + (
                 " Comprueba la API key en Inicio → Credenciales OpenRouter."
                 if nombre_error_proveedor == "Error OpenRouter"
-                else " Revisa Diagnóstico OpenCode para detalles técnicos."
+                else (" La sesión OAuth se administra en este Cloud Shell."
+                      if nombre_error_proveedor == "Error ChatGPT OAuth"
+                      else " Revisa Diagnóstico OpenCode para detalles técnicos.")
             )
         )
         fila["Duración"] = formatear_duracion(time.time() - inicio_pdf)
@@ -1826,6 +1844,15 @@ def ejecutar_lote_streamlit(
     # Preflight: no gastar llamadas a LLMWhisperer ni crear PDFs temporales
     # cuando la propia CLI ya no admite los modelos gratuitos seleccionados.
     modelo_preflight = (modelo_opencode or "").strip().lower()
+    if modelo_preflight.startswith("chatgpt::"):
+        # Integración del selector en la app principal, NO autorización de actas.
+        # El bloqueo es incondicional, incluso si el entorno contiene
+        # variables heredadas: detener antes de llamar a LLMWhisperer.
+        st.error(
+            "ChatGPT OAuth admite solo pruebas ficticias en esta versión. "
+            "El procesamiento de PDFs académicos permanece deshabilitado."
+        )
+        st.stop()
     if modelo_preflight.startswith("openrouter::") and modelo_preflight.endswith(":batch"):
         st.error(
             "El modelo seleccionado usa OpenRouter Batch API asíncrona. "
@@ -2052,7 +2079,7 @@ def ejecutar_lote_streamlit(
         status_placeholder.info(
             f"🚀 {etiqueta_boton} activo\n\n"
             f"**PDFs en paralelo configurados:** "
-            f"{min(int(max_workers_opencode), 2) if (modelo_opencode or '').startswith('openrouter::') else max_workers_opencode}\n\n"
+            f"{1 if (modelo_opencode or '').startswith('chatgpt::') else (min(int(max_workers_opencode), 2) if (modelo_opencode or '').startswith('openrouter::') else max_workers_opencode)}\n\n"
             f"**Timeout PDF activo:** {formatear_duracion(timeout_pdf_segundos)}\n"
             f"**Timeout de IA:** {formatear_duracion(timeout_opencode_segundos)}\n\n"
             f"**Activos:**\n{activos_txt}"
@@ -2120,6 +2147,10 @@ def ejecutar_lote_streamlit(
     renderizar_estado()
 
     workers = max(1, min(int(max_workers_opencode or 1), total or 1))
+    if (modelo_opencode or "").startswith("chatgpt::"):
+        if workers > 1:
+            st.info("ChatGPT OAuth experimental: concurrencia limitada a 1 para proteger la cuota.")
+        workers = 1
     if (modelo_opencode or "").startswith("openrouter::"):
         if workers > 2:
             st.info(
@@ -2833,7 +2864,7 @@ if st.session_state.pop("_reset_global_controles_pendiente", False):
 
 # Migración de la vista anterior: al cambiar la versión de homcloud, no
 # mantener en session_state la selección antigua openrouter/free.
-if st.session_state.get("_motor_preferido_ui_version") != "deepseek_v4_flash_0731_1":
+if st.session_state.get("_motor_preferido_ui_version") != "chatgpt_oauth_exp_v1":
     for clave in (
         "proveedor_ia_selector", "modelo_elegido_openrouter",
         "modelo_manual_openrouter", "modelo_detectado_opencode",
@@ -2841,7 +2872,7 @@ if st.session_state.get("_motor_preferido_ui_version") != "deepseek_v4_flash_073
         "filtro_modelos_openrouter", "filtro_tipo_modelos_openrouter",
     ):
         st.session_state.pop(clave, None)
-    st.session_state["_motor_preferido_ui_version"] = "deepseek_v4_flash_0731_1"
+    st.session_state["_motor_preferido_ui_version"] = "chatgpt_oauth_exp_v1"
 
 # Los tres bloques comparten Firestore, pero los archivos locales no se modifican.
 # Primera publicación siempre explícita: no se migran valores de cuentas sin revisión.
@@ -3006,13 +3037,14 @@ with st.container():
         # El valor compartido conserva el mismo campo "modelo" en Firestore.
         # Prefijo openrouter:: evita migraciones y no comparte API keys.
         proveedor_predeterminado = (
-            "OpenRouter" if modelo_guardado_previo.startswith("openrouter::")
-            else "OpenCode"
+            "ChatGPT OAuth" if modelo_guardado_previo.startswith("chatgpt::")
+            else ("OpenRouter" if modelo_guardado_previo.startswith("openrouter::") else "OpenCode")
         )
+        proveedores_disponibles = ["OpenCode", "OpenRouter", "ChatGPT OAuth"]
         proveedor_ia = st.radio(
             "Proveedor de IA",
-            ["OpenCode", "OpenRouter"],
-            index=1 if proveedor_predeterminado == "OpenRouter" else 0,
+            proveedores_disponibles,
+            index=proveedores_disponibles.index(proveedor_predeterminado),
             horizontal=True,
             key="proveedor_ia_selector",
         )
@@ -3277,6 +3309,98 @@ with st.container():
                     "Un modelo específico puede tener políticas de retención distintas. "
                     "Comprueba la autorización institucional antes de procesar actas reales."
                 )
+        elif proveedor_ia == "ChatGPT OAuth":
+            st.caption("Experimental · Utiliza tu plan ChatGPT autorizado en este Cloud Shell.")
+            estado_oauth = estado_chatgpt_oauth()
+            if not estado_oauth.get("ok"):
+                st.warning(estado_oauth.get("mensaje", "No existe sesión OAuth local."))
+            if "catalogo_chatgpt_oauth" not in st.session_state:
+                st.session_state["catalogo_chatgpt_oauth"] = {"ok": False, "models": []}
+            if st.button("Consultar modelos de mi plan", key="actualizar_catalogo_oauth"):
+                st.session_state["catalogo_chatgpt_oauth"] = listar_modelos_chatgpt_oauth()
+            catalogo_oauth = st.session_state["catalogo_chatgpt_oauth"]
+            opciones_oauth = list(catalogo_oauth.get("models") or [])
+            if opciones_oauth:
+                previo = (modelo_guardado_previo.split("::", 1)[1]
+                          if modelo_guardado_previo.startswith("chatgpt::") else "gpt-6.1-sol")
+                seleccionado_oauth = st.selectbox(
+                    "Modelo ChatGPT OAuth",
+                    options=opciones_oauth,
+                    index=opciones_oauth.index(previo) if previo in opciones_oauth else 0,
+                    key="modelo_chatgpt_oauth",
+                )
+                modelo_opencode = "chatgpt::" + seleccionado_oauth
+            else:
+                modelo_opencode = "chatgpt::"
+                if catalogo_oauth.get("error"):
+                    st.warning(catalogo_oauth["error"])
+                st.caption("Pulsa «Consultar modelos de mi plan» para elegir uno.")
+
+            # Esta preferencia local no sustituye al modelo predeterminado:
+            # sigue siendo DeepSeek hasta que el usuario cambie de proveedor.
+            razonamiento_oauth_guardado = cargar_razonamiento_chatgpt_oauth()
+            if "razonamiento_chatgpt_oauth_selector" not in st.session_state:
+                st.session_state["razonamiento_chatgpt_oauth_selector"] = razonamiento_oauth_guardado
+            etiquetas_esfuerzo = {
+                "auto": "Automático (predeterminado del modelo)",
+                "low": "Low",
+                "medium": "Medium",
+                "high": "High",
+                "xhigh": "Extra High",
+                "max": "Máximo",
+            }
+            esfuerzo_razonamiento_oauth = st.selectbox(
+                "Nivel de razonamiento predeterminado",
+                options=list(RAZONAMIENTOS_CHATGPT_OAUTH),
+                format_func=lambda nivel: etiquetas_esfuerzo[nivel],
+                key="razonamiento_chatgpt_oauth_selector",
+                help="Se guarda automáticamente en este Cloud Shell. "
+                     "Los niveles admitidos dependen del modelo; 'Automático' "
+                     "mantiene el comportamiento anterior.",
+            )
+            if esfuerzo_razonamiento_oauth != razonamiento_oauth_guardado:
+                try:
+                    guardar_razonamiento_chatgpt_oauth(esfuerzo_razonamiento_oauth)
+                except (OSError, ValueError) as exc:
+                    st.error(f"No se pudo guardar el nivel de razonamiento: {exc}")
+                else:
+                    st.success("Nivel predeterminado guardado para los próximos inicios.")
+            else:
+                st.caption("Nivel guardado localmente; se recuperará al reiniciar Homcloud.")
+            st.caption("Los niveles admitidos pueden variar según el modelo. "
+                       "Si no admite el nivel seleccionado, la prueba mostrará un error "
+                       "sin cambiarlo automáticamente.")
+
+            if st.button(
+                "Probar ChatGPT OAuth con texto ficticio",
+                key="probar_chatgpt_oauth",
+                disabled=not estado_oauth.get("ok") or not opciones_oauth,
+            ):
+                with tempfile.TemporaryDirectory(prefix="homcloud_oauth_test_") as temporal:
+                    prueba_txt = Path(temporal) / "ficticio.txt"
+                    prueba_txt.write_text("Documento de prueba sin datos reales.", encoding="utf-8")
+                    prueba = ejecutar_chatgpt_oauth(
+                        prompt='Devuelve solo el JSON {"estado":"detenido","motivo_detencion":"prueba","registros":[]}',
+                        txt_path=prueba_txt,
+                        modelo=modelo_opencode.split("::", 1)[1],
+                        esfuerzo_razonamiento=esfuerzo_razonamiento_oauth,
+                        timeout_segundos=180,
+                    )
+                if prueba.get("ok"):
+                    try:
+                        ok_json = extraer_json_desde_respuesta(prueba["stdout"]).get("estado") == "detenido"
+                    except (ValueError, TypeError):
+                        ok_json = False
+                    if ok_json:
+                        st.success("Prueba de ChatGPT OAuth y JSON completada.")
+                    else:
+                        st.warning("Se obtuvo respuesta, pero el JSON no pasó la prueba.")
+                else:
+                    st.error(prueba.get("error", "Error OAuth."))
+            st.info(
+                "Los PDFs reales permanecen bloqueados en esta versión experimental. "
+                "La prueba solo usa texto ficticio."
+            )
         else:
             if not st.session_state.modelos_opencode_resultado.get("consultado"):
                 st.session_state.modelos_opencode_resultado = obtener_modelos_opencode(refresh=False)
@@ -3343,6 +3467,7 @@ with st.container():
         # tiene publicado otro modelo. El ajuste de esta cuenta persiste.
         if (
             modelo_opencode != modelo_local_guardado
+            and proveedor_ia != "ChatGPT OAuth"
             and (proveedor_ia != "OpenRouter"
                  or (modelo_valido(modelo_opencode.split("::", 1)[-1])
                      and not modelo_opencode.endswith(":batch")))
@@ -3355,7 +3480,7 @@ with st.container():
         if modelo_opencode:
             st.success(
                 f"Motor activo: {proveedor_ia} · "
-                f"{modelo_opencode.split('::', 1)[1] if proveedor_ia == 'OpenRouter' else modelo_opencode}"
+                f"{modelo_opencode.split('::', 1)[1] if proveedor_ia in ('OpenRouter', 'ChatGPT OAuth') else modelo_opencode}"
             )
             if (proveedor_ia == "OpenCode"
                     and bloques_globales["modelo"] is not None
@@ -3619,6 +3744,12 @@ with st.container():
             if (not modelo_gratuito(modelo_opencode.split("::", 1)[-1])
                     and not autorizar_pago_automatico(modelo_opencode)):
                 requisitos_faltantes.append("modelo facturable no autorizado")
+        elif proveedor_ia == "ChatGPT OAuth":
+            requisitos_faltantes.append("procesamiento de PDFs ChatGPT OAuth bloqueado (solo pruebas ficticias)")
+            if not estado_chatgpt_oauth().get("ok"):
+                requisitos_faltantes.append("sesión ChatGPT OAuth local válida")
+            if not modelo_opencode.startswith("chatgpt::") or not modelo_opencode.split("::", 1)[1]:
+                requisitos_faltantes.append("seleccionar un modelo ChatGPT OAuth")
         elif not opencode_path:
             requisitos_faltantes.append("tener OpenCode disponible en el PATH")
 
@@ -3638,12 +3769,15 @@ with st.container():
                 "Los archivos PDF se procesan en este Cloud Shell; "
                 + ("el TXT se envía a OpenRouter y su proveedor de IA."
                    if proveedor_ia == "OpenRouter"
-                   else "el análisis se envía al proveedor configurado en OpenCode.")
+                   else ("el TXT se envía a OpenAI mediante ChatGPT OAuth."
+                         if proveedor_ia == "ChatGPT OAuth"
+                         else "el análisis se envía al proveedor configurado en OpenCode."))
             )
 
     motor_listo = (
-        bool(obtener_api_key_openrouter())
-        if proveedor_ia == "OpenRouter" else bool(opencode_path)
+        bool(obtener_api_key_openrouter()) if proveedor_ia == "OpenRouter"
+        else (estado_chatgpt_oauth().get("ok") if proveedor_ia == "ChatGPT OAuth"
+              else bool(opencode_path))
     )
     # El propietario autorizó permanentemente el envío de estos documentos.
     # No hace falta un checkbox por visita; el envío solo ocurre al iniciar.
@@ -3651,7 +3785,9 @@ with st.container():
     modelo_ia_valido = (
         (modelo_valido(modelo_opencode.split("::", 1)[-1])
          and not modelo_opencode.endswith(":batch"))
-        if proveedor_ia == "OpenRouter" else True
+        if proveedor_ia == "OpenRouter"
+        else (bool(modelo_opencode.startswith("chatgpt::") and modelo_opencode.split("::", 1)[1])
+              if proveedor_ia == "ChatGPT OAuth" else True)
     )
     pago_ia_autorizado = (
         proveedor_ia != "OpenRouter"
@@ -3721,6 +3857,7 @@ with st.container():
             reintentar_click = st.button(
                 f"🔁 Reintentar {len(filas_error_panel)} PDF(s) con error",
                 disabled=not api_keys or not motor_listo or not permiso_ia or not modelo_ia_valido or not pago_ia_autorizado
+                         or proveedor_ia == "ChatGPT OAuth"
                          or bool(errores_globales) or bool(_ajustes_globales_obsoletos()),
                 use_container_width=True,
                 key=f"boton_reintentar_panel_{(ultimo_lote or {}).get('run_id','sin_run')}",
@@ -3810,6 +3947,7 @@ if filas_error_destacadas:
         reintentar_click_destacado = st.button(
             f"🔁 Reintentar ahora {len(filas_error_destacadas)} PDF(s) con error",
             disabled=not api_keys or not motor_listo or not permiso_ia or not modelo_ia_valido or not pago_ia_autorizado
+                         or proveedor_ia == "ChatGPT OAuth"
                          or bool(errores_globales) or bool(_ajustes_globales_obsoletos()),
             use_container_width=True,
             type="primary",
