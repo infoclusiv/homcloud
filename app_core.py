@@ -2863,7 +2863,7 @@ if st.session_state.pop("_reset_global_controles_pendiente", False):
 
 # Migración de la vista anterior: al cambiar la versión de homcloud, no
 # mantener en session_state la selección antigua openrouter/free.
-if st.session_state.get("_motor_preferido_ui_version") != "deepseek_v4_flash_0731_1":
+if st.session_state.get("_motor_preferido_ui_version") != "chatgpt_oauth_exp_v1":
     for clave in (
         "proveedor_ia_selector", "modelo_elegido_openrouter",
         "modelo_manual_openrouter", "modelo_detectado_opencode",
@@ -2871,7 +2871,7 @@ if st.session_state.get("_motor_preferido_ui_version") != "deepseek_v4_flash_073
         "filtro_modelos_openrouter", "filtro_tipo_modelos_openrouter",
     ):
         st.session_state.pop(clave, None)
-    st.session_state["_motor_preferido_ui_version"] = "deepseek_v4_flash_0731_1"
+    st.session_state["_motor_preferido_ui_version"] = "chatgpt_oauth_exp_v1"
 
 # Los tres bloques comparten Firestore, pero los archivos locales no se modifican.
 # Primera publicación siempre explícita: no se migran valores de cuentas sin revisión.
@@ -3036,13 +3036,14 @@ with st.container():
         # El valor compartido conserva el mismo campo "modelo" en Firestore.
         # Prefijo openrouter:: evita migraciones y no comparte API keys.
         proveedor_predeterminado = (
-            "OpenRouter" if modelo_guardado_previo.startswith("openrouter::")
-            else "OpenCode"
+            "ChatGPT OAuth" if modelo_guardado_previo.startswith("chatgpt::")
+            else ("OpenRouter" if modelo_guardado_previo.startswith("openrouter::") else "OpenCode")
         )
+        proveedores_disponibles = ["OpenCode", "OpenRouter", "ChatGPT OAuth"]
         proveedor_ia = st.radio(
             "Proveedor de IA",
-            ["OpenCode", "OpenRouter"],
-            index=1 if proveedor_predeterminado == "OpenRouter" else 0,
+            proveedores_disponibles,
+            index=proveedores_disponibles.index(proveedor_predeterminado),
             horizontal=True,
             key="proveedor_ia_selector",
         )
@@ -3307,6 +3308,61 @@ with st.container():
                     "Un modelo específico puede tener políticas de retención distintas. "
                     "Comprueba la autorización institucional antes de procesar actas reales."
                 )
+        elif proveedor_ia == "ChatGPT OAuth":
+            st.caption("Experimental · Utiliza tu plan ChatGPT autorizado en este Cloud Shell.")
+            estado_oauth = estado_chatgpt_oauth()
+            if not estado_oauth.get("ok"):
+                st.warning(estado_oauth.get("mensaje", "No existe sesión OAuth local."))
+            if "catalogo_chatgpt_oauth" not in st.session_state:
+                st.session_state["catalogo_chatgpt_oauth"] = {"ok": False, "models": []}
+            if st.button("Consultar modelos de mi plan", key="actualizar_catalogo_oauth"):
+                st.session_state["catalogo_chatgpt_oauth"] = listar_modelos_chatgpt_oauth()
+            catalogo_oauth = st.session_state["catalogo_chatgpt_oauth"]
+            opciones_oauth = list(catalogo_oauth.get("models") or [])
+            if opciones_oauth:
+                previo = (modelo_guardado_previo.split("::", 1)[1]
+                          if modelo_guardado_previo.startswith("chatgpt::") else "gpt-6.1-sol")
+                seleccionado_oauth = st.selectbox(
+                    "Modelo ChatGPT OAuth",
+                    options=opciones_oauth,
+                    index=opciones_oauth.index(previo) if previo in opciones_oauth else 0,
+                    key="modelo_chatgpt_oauth",
+                )
+                modelo_opencode = "chatgpt::" + seleccionado_oauth
+            else:
+                modelo_opencode = "chatgpt::"
+                if catalogo_oauth.get("error"):
+                    st.warning(catalogo_oauth["error"])
+                st.caption("Pulsa «Consultar modelos de mi plan» para elegir uno.")
+            if st.button(
+                "Probar ChatGPT OAuth con texto ficticio",
+                key="probar_chatgpt_oauth",
+                disabled=not estado_oauth.get("ok") or not opciones_oauth,
+            ):
+                with tempfile.TemporaryDirectory(prefix="homcloud_oauth_test_") as temporal:
+                    prueba_txt = Path(temporal) / "ficticio.txt"
+                    prueba_txt.write_text("Documento de prueba sin datos reales.", encoding="utf-8")
+                    prueba = ejecutar_chatgpt_oauth(
+                        prompt='Devuelve solo el JSON {"estado":"detenido","motivo_detencion":"prueba","registros":[]}',
+                        txt_path=prueba_txt,
+                        modelo=modelo_opencode.split("::", 1)[1],
+                        timeout_segundos=60,
+                    )
+                if prueba.get("ok"):
+                    try:
+                        ok_json = extraer_json_desde_respuesta(prueba["stdout"]).get("estado") == "detenido"
+                    except (ValueError, TypeError):
+                        ok_json = False
+                    if ok_json:
+                        st.success("Prueba de ChatGPT OAuth y JSON completada.")
+                    else:
+                        st.warning("Se obtuvo respuesta, pero el JSON no pasó la prueba.")
+                else:
+                    st.error(prueba.get("error", "Error OAuth."))
+            st.info(
+                "Los PDFs reales permanecen bloqueados en esta versión experimental. "
+                "La prueba solo usa texto ficticio."
+            )
         else:
             if not st.session_state.modelos_opencode_resultado.get("consultado"):
                 st.session_state.modelos_opencode_resultado = obtener_modelos_opencode(refresh=False)
@@ -3373,6 +3429,7 @@ with st.container():
         # tiene publicado otro modelo. El ajuste de esta cuenta persiste.
         if (
             modelo_opencode != modelo_local_guardado
+            and proveedor_ia != "ChatGPT OAuth"
             and (proveedor_ia != "OpenRouter"
                  or (modelo_valido(modelo_opencode.split("::", 1)[-1])
                      and not modelo_opencode.endswith(":batch")))
@@ -3385,7 +3442,7 @@ with st.container():
         if modelo_opencode:
             st.success(
                 f"Motor activo: {proveedor_ia} · "
-                f"{modelo_opencode.split('::', 1)[1] if proveedor_ia == 'OpenRouter' else modelo_opencode}"
+                f"{modelo_opencode.split('::', 1)[1] if proveedor_ia in ('OpenRouter', 'ChatGPT OAuth') else modelo_opencode}"
             )
             if (proveedor_ia == "OpenCode"
                     and bloques_globales["modelo"] is not None
