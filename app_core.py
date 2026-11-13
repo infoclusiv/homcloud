@@ -23,6 +23,9 @@ from preferencias_motor import (
     MODELO_DEEPSEEK_PREDETERMINADO, cargar_motor_preferido,
     guardar_motor_preferido, autorizar_pago_automatico,
 )
+from chatgpt_oauth_cliente import (
+    estado_chatgpt_oauth, listar_modelos_chatgpt_oauth, ejecutar_chatgpt_oauth,
+)
 from openrouter_cliente import (
     ejecutar_openrouter, listar_modelos_openrouter,
     obtener_api_key_openrouter, guardar_api_key_openrouter, borrar_api_key_openrouter,
@@ -844,6 +847,12 @@ def ejecutar_opencode(
     Los logs originales quedan en la carpeta privada del worker durante
     la retención del lote; jamás se envía el prompt a los metadatos de estado.
     """
+    if (modelo_opencode or "").startswith("chatgpt::"):
+        return ejecutar_chatgpt_oauth(
+            prompt=prompt, txt_path=txt_path,
+            modelo=modelo_opencode.split("::", 1)[1],
+            timeout_segundos=timeout_segundos, cancelar=cancelar,
+        )
     # OpenRouter se integra como motor de inferencia alternativo: no necesita
     # OpenCode CLI ni altera el contrato JSON que valida Python.
     if (modelo_opencode or "").startswith("openrouter::"):
@@ -1344,11 +1353,14 @@ def procesar_pdf(
     )
 
     reportar(
-        "OpenRouter API" if (modelo_opencode or "").startswith("openrouter::") else "OpenCode CLI",
+        ("ChatGPT OAuth" if (modelo_opencode or "").startswith("chatgpt::")
+         else ("OpenRouter API" if (modelo_opencode or "").startswith("openrouter::") else "OpenCode CLI")),
         0.62,
-        (f"Consultando OpenRouter API: {modelo_opencode.split('::', 1)[1]}."
-         if (modelo_opencode or "").startswith("openrouter::")
-         else f"Ejecutando análisis con OpenCode. Modelo: {modelo_opencode or 'Default OpenCode'}."),
+        (f"Consultando ChatGPT OAuth: {modelo_opencode.split('::', 1)[1]}."
+         if (modelo_opencode or "").startswith("chatgpt::")
+         else (f"Consultando OpenRouter API: {modelo_opencode.split('::', 1)[1]}."
+               if (modelo_opencode or "").startswith("openrouter::")
+               else f"Ejecutando análisis con OpenCode. Modelo: {modelo_opencode or 'Default OpenCode'}.")),
     )
 
     inicio_opencode = time.time()
@@ -1364,7 +1376,7 @@ def procesar_pdf(
         timeout_segundos=(
             min(timeout_opencode_segundos,
                 max(5, int(timeout_pdf_segundos - (time.time() - inicio_pdf) - 12)))
-            if (modelo_opencode or "").startswith("openrouter::")
+            if (modelo_opencode or "").startswith(("openrouter::", "chatgpt::"))
             else timeout_opencode_segundos
         ),
         cancelar=cancelar,
@@ -1387,8 +1399,9 @@ def procesar_pdf(
 
     if not resultado_opencode.get("ok"):
         nombre_error_proveedor = (
-            "Error OpenRouter" if (modelo_opencode or "").startswith("openrouter::")
-            else "Error OpenCode"
+            "Error ChatGPT OAuth" if (modelo_opencode or "").startswith("chatgpt::")
+            else ("Error OpenRouter" if (modelo_opencode or "").startswith("openrouter::")
+                  else "Error OpenCode")
         )
         fila["Estado"] = nombre_error_proveedor
         fila["Fase actual"] = nombre_error_proveedor
@@ -1402,7 +1415,9 @@ def procesar_pdf(
             + (
                 " Comprueba la API key en Inicio → Credenciales OpenRouter."
                 if nombre_error_proveedor == "Error OpenRouter"
-                else " Revisa Diagnóstico OpenCode para detalles técnicos."
+                else (" La sesión OAuth se administra en este Cloud Shell."
+                      if nombre_error_proveedor == "Error ChatGPT OAuth"
+                      else " Revisa Diagnóstico OpenCode para detalles técnicos.")
             )
         )
         fila["Duración"] = formatear_duracion(time.time() - inicio_pdf)
@@ -1826,6 +1841,17 @@ def ejecutar_lote_streamlit(
     # Preflight: no gastar llamadas a LLMWhisperer ni crear PDFs temporales
     # cuando la propia CLI ya no admite los modelos gratuitos seleccionados.
     modelo_preflight = (modelo_opencode or "").strip().lower()
+    if modelo_preflight.startswith("chatgpt::"):
+        if os.environ.get("HOMCLOUD_CHATGPT_OAUTH_ACTAS") != "1":
+            st.error(
+                "ChatGPT OAuth está en modo experimental: documentos reales deshabilitados. "
+                "Primero verifica elegibilidad del despliegue y autorización institucional."
+            )
+            st.stop()
+        estado_oauth = estado_chatgpt_oauth()
+        if not estado_oauth.get("ok") or not modelo_preflight.split("::", 1)[1]:
+            st.error("No se inició ningún PDF: falta sesión ChatGPT OAuth o modelo válido.")
+            st.stop()
     if modelo_preflight.startswith("openrouter::") and modelo_preflight.endswith(":batch"):
         st.error(
             "El modelo seleccionado usa OpenRouter Batch API asíncrona. "
@@ -2052,7 +2078,7 @@ def ejecutar_lote_streamlit(
         status_placeholder.info(
             f"🚀 {etiqueta_boton} activo\n\n"
             f"**PDFs en paralelo configurados:** "
-            f"{min(int(max_workers_opencode), 2) if (modelo_opencode or '').startswith('openrouter::') else max_workers_opencode}\n\n"
+            f"{1 if (modelo_opencode or '').startswith('chatgpt::') else (min(int(max_workers_opencode), 2) if (modelo_opencode or '').startswith('openrouter::') else max_workers_opencode)}\n\n"
             f"**Timeout PDF activo:** {formatear_duracion(timeout_pdf_segundos)}\n"
             f"**Timeout de IA:** {formatear_duracion(timeout_opencode_segundos)}\n\n"
             f"**Activos:**\n{activos_txt}"
@@ -2120,6 +2146,10 @@ def ejecutar_lote_streamlit(
     renderizar_estado()
 
     workers = max(1, min(int(max_workers_opencode or 1), total or 1))
+    if (modelo_opencode or "").startswith("chatgpt::"):
+        if workers > 1:
+            st.info("ChatGPT OAuth experimental: concurrencia limitada a 1 para proteger la cuota.")
+        workers = 1
     if (modelo_opencode or "").startswith("openrouter::"):
         if workers > 2:
             st.info(
