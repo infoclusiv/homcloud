@@ -22,6 +22,8 @@ from opencode_compat import crear_comando_opencode, detectar_version_opencode
 from preferencias_motor import (
     MODELO_DEEPSEEK_PREDETERMINADO, cargar_motor_preferido,
     guardar_motor_preferido, autorizar_pago_automatico,
+    RAZONAMIENTOS_CHATGPT_OAUTH, cargar_razonamiento_chatgpt_oauth,
+    guardar_razonamiento_chatgpt_oauth,
 )
 from chatgpt_oauth_cliente import (
     estado_chatgpt_oauth, listar_modelos_chatgpt_oauth, ejecutar_chatgpt_oauth,
@@ -852,6 +854,7 @@ def ejecutar_opencode(
             prompt=prompt, txt_path=txt_path,
             modelo=modelo_opencode.split("::", 1)[1],
             timeout_segundos=timeout_segundos, cancelar=cancelar,
+            esfuerzo_razonamiento=cargar_razonamiento_chatgpt_oauth(),
         )
     # OpenRouter se integra como motor de inferencia alternativo: no necesita
     # OpenCode CLI ni altera el contrato JSON que valida Python.
@@ -3334,6 +3337,42 @@ with st.container():
                 if catalogo_oauth.get("error"):
                     st.warning(catalogo_oauth["error"])
                 st.caption("Pulsa «Consultar modelos de mi plan» para elegir uno.")
+
+            # Esta preferencia local no sustituye al modelo predeterminado:
+            # sigue siendo DeepSeek hasta que el usuario cambie de proveedor.
+            razonamiento_oauth_guardado = cargar_razonamiento_chatgpt_oauth()
+            if "razonamiento_chatgpt_oauth_selector" not in st.session_state:
+                st.session_state["razonamiento_chatgpt_oauth_selector"] = razonamiento_oauth_guardado
+            etiquetas_esfuerzo = {
+                "auto": "Automático (predeterminado del modelo)",
+                "low": "Low",
+                "medium": "Medium",
+                "high": "High",
+                "xhigh": "Extra High",
+                "max": "Máximo",
+            }
+            esfuerzo_razonamiento_oauth = st.selectbox(
+                "Nivel de razonamiento predeterminado",
+                options=list(RAZONAMIENTOS_CHATGPT_OAUTH),
+                format_func=lambda nivel: etiquetas_esfuerzo[nivel],
+                key="razonamiento_chatgpt_oauth_selector",
+                help="Se guarda automáticamente en este Cloud Shell. "
+                     "Los niveles admitidos dependen del modelo; 'Automático' "
+                     "mantiene el comportamiento anterior.",
+            )
+            if esfuerzo_razonamiento_oauth != razonamiento_oauth_guardado:
+                try:
+                    guardar_razonamiento_chatgpt_oauth(esfuerzo_razonamiento_oauth)
+                except (OSError, ValueError) as exc:
+                    st.error(f"No se pudo guardar el nivel de razonamiento: {exc}")
+                else:
+                    st.success("Nivel predeterminado guardado para los próximos inicios.")
+            else:
+                st.caption("Nivel guardado localmente; se recuperará al reiniciar Homcloud.")
+            st.caption("Los niveles admitidos pueden variar según el modelo. "
+                       "Si no admite el nivel seleccionado, la prueba mostrará un error "
+                       "sin cambiarlo automáticamente.")
+
             if st.button(
                 "Probar ChatGPT OAuth con texto ficticio",
                 key="probar_chatgpt_oauth",
@@ -3346,7 +3385,8 @@ with st.container():
                         prompt='Devuelve solo el JSON {"estado":"detenido","motivo_detencion":"prueba","registros":[]}',
                         txt_path=prueba_txt,
                         modelo=modelo_opencode.split("::", 1)[1],
-                        timeout_segundos=60,
+                        esfuerzo_razonamiento=esfuerzo_razonamiento_oauth,
+                        timeout_segundos=180,
                     )
                 if prueba.get("ok"):
                     try:

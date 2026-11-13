@@ -18,6 +18,8 @@ import tempfile
 import time
 from urllib import error, parse, request
 
+from preferencias_motor import RAZONAMIENTOS_CHATGPT_OAUTH
+
 try:
     import fcntl
 except ImportError:
@@ -224,7 +226,7 @@ def _read_events(events, cancelar=None) -> str:
 
 def ejecutar_chatgpt_oauth(
     *, prompt: str, txt_path: Path, modelo: str, timeout_segundos: int = 120,
-    cancelar=None,
+    cancelar=None, esfuerzo_razonamiento: str = "auto",
 ) -> dict:
     """Misma forma de resultado que OpenCode/OpenRouter. No adjunta PDF."""
     start = time.monotonic()
@@ -236,6 +238,9 @@ def ejecutar_chatgpt_oauth(
         }
     if not isinstance(modelo, str) or not MODELO_RE.fullmatch(modelo):
         return fallo("Modelo ChatGPT OAuth inválido.")
+    if (not isinstance(esfuerzo_razonamiento, str)
+            or esfuerzo_razonamiento not in RAZONAMIENTOS_CHATGPT_OAUTH):
+        return fallo("Nivel de razonamiento ChatGPT OAuth inválido.")
     if cancelar is not None and cancelar.is_set():
         return fallo("Cancelado antes de enviar el TXT.")
     try:
@@ -252,6 +257,11 @@ def ejecutar_chatgpt_oauth(
             "store": False,
             "stream": True,
         }
+        # 'auto' omite el parámetro: así se preserva la inferencia ya probada.
+        # El servidor puede rechazar un esfuerzo no admitido por otro modelo;
+        # nunca reintentar silenciosamente cambiando al esfuerzo por defecto.
+        if esfuerzo_razonamiento != "auto":
+            data["reasoning"] = {"effort": esfuerzo_razonamiento}
         req = request.Request(
             RESOURCE + "/responses", method="POST",
             data=json.dumps(data, ensure_ascii=False).encode("utf-8"),

@@ -33,7 +33,22 @@ firestore o archivos públicos.**
 Al seleccionar ChatGPT OAuth en la interfaz experimental:
 1. Consulta los modelos de tu plan.
 2. Selecciona un modelo de los devueltos (por ejemplo gpt-6.1-sol).
-3. Pulsa «Probar ChatGPT OAuth con texto ficticio».
+3. Elige el nivel de razonamiento (Automático, Low, Medium, High, Extra High o Máximo).
+   Al cambiarlo, se guarda de forma atómica en
+   `settings/razonamiento_chatgpt_oauth.txt` (0600, excluido de Git).
+   Se recupera al volver a iniciar Homcloud en el mismo Cloud Shell.
+   Esta preferencia es independiente del motor DeepSeek predeterminado,
+   no se comparte mediante Firestore ni altera la cuenta de ChatGPT.
+4. Pulsa «Probar ChatGPT OAuth con texto ficticio».
+
+El nivel `auto` omite `reasoning` y conserva el comportamiento previo.
+Los niveles explícitos usan `reasoning: {"effort": "..."}`. GPT-6.1 Sol
+admite `low`, `medium`, `high`, `xhigh` y `max`; la compatibilidad de
+otros modelos puede variar. Si el servidor rechaza un nivel, se muestra el
+error sin degradar el razonamiento silenciosamente ni reintentar.
+La prueba sintética permite verificar cada nivel con texto ficticio,
+sin enviar documentos reales. La aceptación de cada nivel por el
+servicio OAuth del plan todavía requiere verificación en Cloud Shell.
 
 La prueba envía texto inventado y valida un pequeño objeto JSON sin
 LLMWhisperer. No subas actas reales en esta fase.

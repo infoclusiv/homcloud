@@ -96,6 +96,45 @@ class TestChatGPTOAuth(unittest.TestCase):
         self.assertIs(captured["store"], False)
         self.assertEqual(captured["model"], "gpt-6.1-sol")
         self.assertNotIn("max_output_tokens", captured)
+        self.assertNotIn("reasoning", captured)  # La preferencia "auto" no cambia el contrato.
+
+    def test_niveles_explicitos_se_envian_en_responses(self):
+        for nivel in ("low", "medium", "high", "xhigh", "max"):
+            with self.subTest(nivel=nivel), tempfile.TemporaryDirectory() as tmp:
+                captured = {}
+                stream = Respuesta(b"".join([
+                    evento("response.output_text.delta",
+                           delta='{"estado":"detenido","registros":[]}'),
+                    evento("response.completed"),
+                ]))
+                def fake_urlopen(req, timeout):
+                    captured.update(json.loads(req.data))
+                    return stream
+                doc = Path(tmp) / "ficticio.txt"
+                doc.write_text("Solo contenido ficticio", encoding="utf-8")
+                with patch.object(o, "_token_acceso", return_value="falso"), patch.object(
+                    o.request, "urlopen", side_effect=fake_urlopen
+                ):
+                    ans = o.ejecutar_chatgpt_oauth(
+                        prompt="Solo JSON", txt_path=doc, modelo="gpt-6.1-sol",
+                        esfuerzo_razonamiento=nivel,
+                    )
+                self.assertTrue(ans["ok"], ans.get("error"))
+                self.assertEqual(captured["reasoning"], {"effort": nivel})
+                self.assertIs(captured["store"], False)
+                self.assertIs(captured["stream"], True)
+                self.assertNotIn("max_output_tokens", captured)
+
+    def test_razonamiento_invalido_no_inicia_red(self):
+        for nivel in ("none", "minimal", "ULTRA", "", None, "max\\nHeader:malicioso"):
+            with self.subTest(nivel=nivel), patch.object(o.request, "urlopen") as red:
+                ans = o.ejecutar_chatgpt_oauth(
+                    prompt="", txt_path=Path("no-existe.txt"), modelo="gpt-6.1-sol",
+                    esfuerzo_razonamiento=nivel,
+                )
+                self.assertFalse(ans["ok"])
+                self.assertIn("razonamiento", ans["error"])
+                red.assert_not_called()
 
     def test_modelo_malicioso_no_inicia_red(self):
         ans = o.ejecutar_chatgpt_oauth(

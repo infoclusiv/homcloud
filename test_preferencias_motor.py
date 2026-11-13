@@ -55,6 +55,38 @@ class PreferenciasMotorTests(unittest.TestCase):
                         p.guardar_motor_preferido(modelo, ruta)
             self.assertFalse(ruta.exists())
 
+    def test_razonamiento_oauth_persiste_entre_inicios(self):
+        with TemporaryDirectory() as carpeta:
+            ruta = Path(carpeta) / "settings" / "razonamiento.txt"
+            self.assertEqual(p.cargar_razonamiento_chatgpt_oauth(ruta), "auto")
+            self.assertFalse(ruta.exists())
+            p.guardar_razonamiento_chatgpt_oauth("xhigh", ruta)
+            self.assertEqual(p.cargar_razonamiento_chatgpt_oauth(ruta), "xhigh")
+            self.assertEqual(ruta.stat().st_mode & 0o777, 0o600)
+            p.guardar_razonamiento_chatgpt_oauth("auto", ruta)
+            self.assertEqual(p.cargar_razonamiento_chatgpt_oauth(ruta), "auto")
+
+    def test_razonamiento_invalido_no_sobrescribe_el_guardado(self):
+        with TemporaryDirectory() as carpeta:
+            ruta = Path(carpeta) / "razonamiento.txt"
+            p.guardar_razonamiento_chatgpt_oauth("high", ruta)
+            for nivel in ("none", "minimal", "ultra", "", "HIGH", None, "high\\nmalicioso"):
+                with self.subTest(nivel=nivel):
+                    with self.assertRaises(ValueError):
+                        p.guardar_razonamiento_chatgpt_oauth(nivel, ruta)
+            self.assertEqual(p.cargar_razonamiento_chatgpt_oauth(ruta), "high")
+            ruta.write_text("no-valido", encoding="utf-8")
+            self.assertEqual(p.cargar_razonamiento_chatgpt_oauth(ruta), "auto")
+
+    def test_razonamiento_es_independiente_del_motor_deepseek(self):
+        with TemporaryDirectory() as carpeta:
+            path_modelo = Path(carpeta) / "motor.txt"
+            path_razonamiento = Path(carpeta) / "razonamiento.txt"
+            p.guardar_razonamiento_chatgpt_oauth("max", path_razonamiento)
+            self.assertEqual(p.cargar_motor_preferido(path_modelo),
+                             p.MODELO_DEEPSEEK_PREDETERMINADO)
+            self.assertEqual(p.cargar_razonamiento_chatgpt_oauth(path_razonamiento), "max")
+
     def test_sin_autorizacion_batch_ni_opencode(self):
         self.assertTrue(p.autorizar_pago_automatico(
             "openrouter::deepseek/deepseek-v4-flash-0731"))

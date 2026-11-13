@@ -18,6 +18,14 @@ ARCHIVO_MOTOR_PREDETERMINADO = (
 )
 _VALIDO = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_:./+-]{0,199}$")
 
+# Preferencia independiente del modelo/otras APIs. "auto" omite el campo
+# reasoning: mantiene el comportamiento ya validado de la PoC.
+RAZONAMIENTO_CHATGPT_OAUTH_PREDETERMINADO = "auto"
+RAZONAMIENTOS_CHATGPT_OAUTH = ("auto", "low", "medium", "high", "xhigh", "max")
+ARCHIVO_RAZONAMIENTO_CHATGPT_OAUTH = (
+    Path(__file__).resolve().parent / "settings" / "razonamiento_chatgpt_oauth.txt"
+)
+
 
 def modelo_id_valido(valor: str) -> bool:
     """Acepta proveedor/modelo o el modelo vacío elegido en OpenCode."""
@@ -62,6 +70,28 @@ def guardar_motor_preferido(modelo: str, path: Path | None = None) -> None:
     finally:
         if temporal is not None:
             temporal.unlink(missing_ok=True)
+
+
+def cargar_razonamiento_chatgpt_oauth(path: Path | None = None) -> str:
+    """Devuelve el esfuerzo OAuth guardado; ante falta/corrupción usa auto."""
+    ruta = Path(path) if path is not None else ARCHIVO_RAZONAMIENTO_CHATGPT_OAUTH
+    try:
+        if not ruta.is_file() or ruta.is_symlink():
+            return RAZONAMIENTO_CHATGPT_OAUTH_PREDETERMINADO
+        nivel = ruta.read_text(encoding="utf-8").strip()
+        if nivel in RAZONAMIENTOS_CHATGPT_OAUTH:
+            return nivel
+    except (OSError, UnicodeError):
+        pass
+    return RAZONAMIENTO_CHATGPT_OAUTH_PREDETERMINADO
+
+
+def guardar_razonamiento_chatgpt_oauth(nivel: str, path: Path | None = None) -> None:
+    """Guarda localmente en 0600, de forma atómica y fuera de Git."""
+    if not isinstance(nivel, str) or nivel not in RAZONAMIENTOS_CHATGPT_OAUTH:
+        raise ValueError("Nivel de razonamiento ChatGPT OAuth inválido.")
+    destino = Path(path) if path is not None else ARCHIVO_RAZONAMIENTO_CHATGPT_OAUTH
+    guardar_motor_preferido(nivel, destino)
 
 
 def autorizar_pago_automatico(modelo: str) -> bool:
