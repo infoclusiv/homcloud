@@ -1742,6 +1742,7 @@ def reconstruir_resultado_lote_combinado(
         "run_outputs_dir": str(run_outputs_dir),
         "filas": filas_combinadas,
         "filas_error": filas_error,
+        "modelo_usado": modelo_opencode,
         "resumen_csv_path": str(resumen_csv_path),
         "errores_csv_path": str(errores_csv_path) if errores_csv_path else "",
         "zip_ahk_path": str(zip_ahk_path) if zip_ahk_path else "",
@@ -2473,6 +2474,7 @@ def ejecutar_lote_streamlit(
         "run_outputs_dir": str(run_outputs_dir),
         "filas": filas,
         "filas_error": filas_error,
+        "modelo_usado": resultado_reintento.get("modelo_usado", ""),
         "resumen_csv_path": str(resumen_csv_path),
         "errores_csv_path": str(errores_csv_path) if errores_csv_path else "",
         "zip_ahk_path": str(zip_ahk_path) if zip_ahk_path else "",
@@ -3850,38 +3852,14 @@ with st.container():
 
         filas_error_panel = (ultimo_lote or {}).get("filas_error", []) if ultimo_lote else []
         if filas_error_panel:
-            st.warning(f"Hay {len(filas_error_panel)} archivo(s) con error reintentable.")
-            max_workers_retry_limite = min(max(1, max_workers_opencode), len(filas_error_panel)) if filas_error_panel else 1
-            max_workers_retry_limite = max(1, max_workers_retry_limite)
-
-            if max_workers_retry_limite <= 1:
-                concurrencia_reintento = 1
-                st.caption("Reintento con 1 proceso simultáneo porque solo hay 1 PDF con error.")
-            else:
-                concurrencia_reintento = st.slider(
-                    "Paralelo en reintento",
-                    min_value=1,
-                    max_value=max_workers_retry_limite,
-                    value=max_workers_retry_limite,
-                    step=1,
-                    key=f"concurrencia_reintento_panel_{(ultimo_lote or {}).get('run_id','sin_run')}",
-                )
-
-            reintentar_click = st.button(
-                f"🔁 Reintentar {len(filas_error_panel)} PDF(s) con error",
-                disabled=not api_keys or not motor_listo or not permiso_ia or not modelo_ia_valido or not pago_ia_autorizado
-                         or (proveedor_ia == "ChatGPT OAuth" and not consultar_activacion_actas()["ok"])
-                         or bool(errores_globales) or bool(_ajustes_globales_obsoletos()),
-                use_container_width=True,
-                key=f"boton_reintentar_panel_{(ultimo_lote or {}).get('run_id','sin_run')}",
+            st.warning(
+                f"🔁 {len(filas_error_panel)} archivo(s) pendientes de reintento. "
+                "Selecciona un proveedor diferente en la sección de recuperación que aparece debajo."
             )
+        elif ultimo_lote:
+            st.success("No hay errores reintentables en el último lote.")
         else:
-            concurrencia_reintento = 1
-            reintentar_click = False
-            if ultimo_lote:
-                st.success("No hay errores reintentables en el último lote.")
-            else:
-                st.info("Después de tu primer procesamiento, aquí verás el resumen consolidado y los reintentos.")
+            st.info("Después del primer procesamiento verás aquí el resumen y los reintentos.")
 
         with st.expander("Actividad y rutas del lote", expanded=False):
             if ultimo_lote:
@@ -3893,86 +3871,211 @@ with st.container():
             else:
                 st.caption("Aún no hay actividad registrada en esta sesión.")
 
-# Sección destacada de reintento: queda visible fuera del panel lateral para que el usuario
-# no tenga que buscarla dentro del resumen ni dentro del detalle del último procesamiento.
+# Panel de recuperación independiente del selector y preferencias de la tanda normal.
+# No se cambia el modelo predeterminado al reintentar un lote.
+from reintentos_proveedor import (
+    PROVEEDORES_REINTENTO, causas_reintentables, proveedor_desde_modelo,
+    requisitos_reintento,
+)
+
+reintentar_click = False
+modelo_reintento = ""
+proveedor_reintento = PROVEEDORES_REINTENTO[0]
+pago_reintento_autorizado = False
+concurrencia_reintento = 1
 filas_error_destacadas = (st.session_state.get("ultimo_lote") or {}).get("filas_error", [])
 
 if filas_error_destacadas:
-    run_id_reintento_destacado = (st.session_state.get("ultimo_lote") or {}).get("run_id", "sin_run")
+    ultimo_reintento = st.session_state.get("ultimo_lote") or {}
+    run_id_reintento_destacado = ultimo_reintento.get("run_id", "sin_run")
+    modelo_lote_previo = str(ultimo_reintento.get("modelo_usado") or "")
+    if not modelo_lote_previo:
+        ruta_modelo_previo = Path(ultimo_reintento.get("run_outputs_dir", "")) / "modelo_opencode.txt"
+        if ruta_modelo_previo.is_file() and not ruta_modelo_previo.is_symlink():
+            modelo_lote_previo = ruta_modelo_previo.read_text(encoding="utf-8").strip()
+    proveedor_anterior = proveedor_desde_modelo(modelo_lote_previo)
+    causas = causas_reintentables(filas_error_destacadas)
+
     st.markdown(
-        f"""
-        <div class="retry-alert-card">
-            <h3>🔁 Archivos con error listos para reintentar</h3>
-            <p>
-                Hay <strong>{len(filas_error_destacadas)}</strong> PDF(s) con error reintentable en el lote
-                <strong>{run_id_reintento_destacado}</strong>. Puedes reintentar solo esos archivos sin perder
-                los AHK que ya se generaron correctamente.
-            </p>
-        </div>
-        """,
+        '<div class="retry-alert-card">'
+        '<h3>🔁 Recuperar archivos con error</h3>'
+        '<p>El lote finalizó con archivos que pueden reintentarse. '
+        'Elige un proveedor y un modelo para procesar <strong>solo los fallidos</strong>; '
+        'los resultados correctos y sus AHK se conservarán.</p>'
+        '</div>',
         unsafe_allow_html=True,
     )
+    info_errores, info_previos = st.columns([1, 2])
+    with info_errores:
+        st.metric("Archivos por recuperar", len(filas_error_destacadas))
+    with info_previos:
+        st.markdown(f"**Proveedor del lote anterior:** {proveedor_anterior}")
+        st.caption("El proveedor de recuperación no cambia el modelo habitual configurado arriba.")
+    st.markdown("**Motivos detectados**")
+    st.caption(" · ".join(f"{causa}: {cantidad}" for causa, cantidad in causas.items()))
 
-    columnas_error_visibles = [
-        columna
-        for columna in ["Archivo", "Estado", "Fase actual", "Duración", "Error"]
-        if filas_error_destacadas and columna in filas_error_destacadas[0]
-    ]
+    with st.expander("Ver archivos fallidos y detalles técnicos", expanded=False):
+        columnas_error_visibles = [
+            columna
+            for columna in ["Archivo", "Estado", "Fase actual", "Duración", "Error"]
+            if columna in filas_error_destacadas[0]
+        ]
+        st.dataframe(
+            [{columna: fila.get(columna, "") for columna in columnas_error_visibles}
+             for fila in filas_error_destacadas],
+            use_container_width=True, hide_index=True,
+            height=min(350, 40 * (len(filas_error_destacadas) + 1)),
+        )
 
-    with st.expander("Ver PDFs que se van a reintentar", expanded=True):
-        if columnas_error_visibles:
-            st.dataframe(
-                [
-                    {columna: fila.get(columna, "") for columna in columnas_error_visibles}
-                    for fila in filas_error_destacadas
-                ],
-                use_container_width=True,
-                hide_index=True,
-                height=min(300, 40 * (len(filas_error_destacadas) + 1)),
-            )
+    st.markdown("#### 1. Elegir el proveedor para el reintento")
+    proveedor_reintento = st.selectbox(
+        "Proveedor para recuperar los archivos fallidos",
+        PROVEEDORES_REINTENTO,
+        key=f"proveedor_reintento_{run_id_reintento_destacado}",
+        help="Esta elección es independiente de la configuración habitual de la tanda.",
+    )
+    opciones_catalogo_retry = []
+    oauth_modelo_disponible = False
+    modelo_retry_valido_router = False
+    router_retry_pago = False
+    if proveedor_reintento == "OpenCode":
+        if not st.session_state.modelos_opencode_resultado.get("consultado"):
+            st.session_state.modelos_opencode_resultado = obtener_modelos_opencode(refresh=False)
+            st.session_state.modelos_opencode_resultado["consultado"] = True
+        opciones_catalogo_retry = ["Modelo predeterminado de OpenCode"] + [
+            m for m in st.session_state.modelos_opencode_resultado.get("models", [])
+            if not m.startswith(("openrouter::", "chatgpt::"))
+        ]
+        seleccionado_retry = st.selectbox(
+            "Modelo OpenCode para el reintento", opciones_catalogo_retry,
+            key=f"modelo_retry_opencode_{run_id_reintento_destacado}",
+        )
+        manual_retry = st.text_input(
+            "ID manual del modelo OpenCode (opcional)",
+            key=f"manual_retry_opencode_{run_id_reintento_destacado}",
+            placeholder="proveedor/modelo",
+        ).strip()
+        modelo_reintento = manual_retry or (
+            "" if seleccionado_retry == opciones_catalogo_retry[0] else seleccionado_retry
+        )
+    elif proveedor_reintento == "OpenRouter":
+        if "catalogo_reintento_openrouter" not in st.session_state:
+            st.session_state["catalogo_reintento_openrouter"] = listar_modelos_openrouter()
+        if st.button("Actualizar modelos OpenRouter", key="actualizar_router_retry"):
+            st.session_state["catalogo_reintento_openrouter"] = listar_modelos_openrouter()
+        resultado_catalogo_retry = st.session_state["catalogo_reintento_openrouter"]
+        if not resultado_catalogo_retry.get("ok"):
+            st.warning(resultado_catalogo_retry.get("error", "No se pudo consultar el catálogo."))
+        filtro_retry = st.text_input(
+            "Buscar modelo OpenRouter", placeholder="Escribe parte del nombre o ID",
+            key=f"filtro_router_retry_{run_id_reintento_destacado}",
+        ).strip().casefold()
+        modelos_router_retry = [
+            modelo for modelo in resultado_catalogo_retry.get("models", [ROUTER_GRATUITO])
+            if modelo_valido(modelo) and not modelo.endswith(":batch")
+            and filtro_retry in modelo.casefold()
+        ]
+        if not modelos_router_retry:
+            st.warning("No hay modelos que coincidan con la búsqueda.")
         else:
-            st.dataframe(filas_error_destacadas, use_container_width=True)
-
-    col_retry_info, col_retry_action = st.columns([1, 2], gap="large")
-
-    with col_retry_info:
-        max_workers_retry_destacado = min(max(1, int(max_workers_opencode)), len(filas_error_destacadas))
-        max_workers_retry_destacado = max(1, max_workers_retry_destacado)
-
-        if max_workers_retry_destacado <= 1:
-            concurrencia_reintento_destacada = 1
-            st.info("Reintento configurado con 1 proceso simultáneo porque solo hay 1 PDF con error.")
-        else:
-            concurrencia_reintento_destacada = st.slider(
-                "Procesos simultáneos para este reintento",
-                min_value=1,
-                max_value=max_workers_retry_destacado,
-                value=max_workers_retry_destacado,
-                step=1,
-                key=f"concurrencia_reintento_destacada_{run_id_reintento_destacado}",
+            modelo_router_retry = st.selectbox(
+                "Modelo OpenRouter para el reintento",
+                modelos_router_retry,
+                key=f"modelo_router_retry_{run_id_reintento_destacado}",
+                format_func=lambda m: f"{m} · {'Gratis' if modelo_gratuito(m) else 'Pago'}",
             )
+            modelo_reintento = "openrouter::" + modelo_router_retry
+            modelo_retry_valido_router = modelo_valido(modelo_router_retry)
+            router_retry_pago = not modelo_gratuito(modelo_router_retry)
+            if router_retry_pago:
+                st.warning(
+                    "Este modelo es de pago. El reintento puede consumir créditos "
+                    "de tu cuenta OpenRouter. Verifica las tarifas antes de continuar."
+                )
+                pago_reintento_autorizado = st.checkbox(
+                    "Confirmo que deseo reintentar con un modelo OpenRouter de pago",
+                    key=f"pago_router_retry_{run_id_reintento_destacado}_{modelo_router_retry}",
+                )
+            else:
+                st.caption("Modelo gratuito sujeto a disponibilidad, límites y cuotas.")
+        if not obtener_api_key_openrouter():
+            st.error(
+                "Falta la API key de OpenRouter. Configúrala arriba en "
+                "Proveedor de IA → OpenRouter → Credenciales y vuelve aquí."
+            )
+    elif proveedor_reintento == "ChatGPT OAuth":
+        st.caption("Experimental · Solo disponible con autorización local para actas.")
+        autorizacion_retry = consultar_activacion_actas()
+        estado_retry_oauth = estado_chatgpt_oauth()
+        if not autorizacion_retry.get("ok"):
+            st.error(autorizacion_retry.get("mensaje", "La autorización para actas está bloqueada."))
+        if not estado_retry_oauth.get("ok"):
+            st.error(estado_retry_oauth.get("mensaje", "No existe una sesión OAuth válida."))
+        if st.button("Consultar modelos autorizados de ChatGPT", key="catalogo_oauth_retry"):
+            st.session_state["catalogo_reintento_oauth"] = listar_modelos_chatgpt_oauth()
+        catalogo_retry_oauth = st.session_state.get("catalogo_reintento_oauth", {})
+        modelos_oauth_retry = list(catalogo_retry_oauth.get("models") or [])
+        if modelos_oauth_retry:
+            modelo_oauth_retry = st.selectbox(
+                "Modelo ChatGPT OAuth para el reintento",
+                modelos_oauth_retry, key=f"modelo_oauth_retry_{run_id_reintento_destacado}",
+            )
+            modelo_reintento = "chatgpt::" + modelo_oauth_retry
+            oauth_modelo_disponible = True
+        else:
+            st.info("Consulta el catálogo y selecciona un modelo antes de continuar.")
 
-        st.caption(
-            "El reintento solo procesará los PDFs con error. Los resultados correctos anteriores se conservarán."
+    st.markdown("#### 2. Configurar y confirmar la recuperación")
+    if len(filas_error_destacadas) == 1:
+        concurrencia_reintento = 1
+        st.caption("Procesos simultáneos: 1 (solo un archivo pendiente).")
+    else:
+        concurrencia_reintento = st.slider(
+            "Procesos simultáneos para el reintento",
+            min_value=1, max_value=min(20, len(filas_error_destacadas)),
+            value=1, step=1,
+            key=f"concurrencia_reintento_{run_id_reintento_destacado}",
+            help="Se recomienda iniciar con 1 para evitar volver a alcanzar límites de velocidad.",
         )
+    if proveedor_reintento == "OpenRouter":
+        st.caption("OpenRouter limita internamente la concurrencia a 2.")
+    elif proveedor_reintento == "ChatGPT OAuth":
+        st.caption("ChatGPT OAuth utiliza 1 solicitud simultánea.")
 
-    with col_retry_action:
-        reintentar_click_destacado = st.button(
-            f"🔁 Reintentar ahora {len(filas_error_destacadas)} PDF(s) con error",
-            disabled=not api_keys or not motor_listo or not permiso_ia or not modelo_ia_valido or not pago_ia_autorizado
-                         or (proveedor_ia == "ChatGPT OAuth" and not consultar_activacion_actas()["ok"])
-                         or bool(errores_globales) or bool(_ajustes_globales_obsoletos()),
-            use_container_width=True,
-            type="primary",
-            key=f"boton_reintentar_destacado_{run_id_reintento_destacado}",
-        )
-        st.caption(
-            "Después del reintento, la tabla final quedará combinada: PDFs correctos anteriores + PDFs reintentados actualizados."
-        )
-
-    if reintentar_click_destacado:
-        concurrencia_reintento = concurrencia_reintento_destacada
-        reintentar_click = True
+    autorizacion_oauth_retry = (
+        consultar_activacion_actas().get("ok", False)
+        if proveedor_reintento == "ChatGPT OAuth" else False
+    )
+    sesion_oauth_retry = (
+        estado_chatgpt_oauth().get("ok", False)
+        if proveedor_reintento == "ChatGPT OAuth" else False
+    )
+    problemas_reintento = requisitos_reintento(
+        proveedor_reintento, modelo_reintento,
+        hay_llmwhisperer=bool(api_keys),
+        prompts_validos=bool(prompt_pregrado.strip() and prompt_posgrado.strip()),
+        ajustes_validos=not bool(errores_globales or _ajustes_globales_obsoletos()),
+        opencode_instalado=bool(opencode_path),
+        openrouter_con_clave=bool(obtener_api_key_openrouter()),
+        openrouter_modelo_valido=modelo_retry_valido_router,
+        openrouter_es_pago=router_retry_pago,
+        pago_confirmado=pago_reintento_autorizado,
+        oauth_actas_autorizadas=autorizacion_oauth_retry,
+        oauth_sesion_valida=sesion_oauth_retry,
+        oauth_modelo_disponible=oauth_modelo_disponible,
+    )
+    st.info(
+        f"Se reintentarán {len(filas_error_destacadas)} archivo(s) con "
+        f"{proveedor_reintento if proveedor_reintento != PROVEEDORES_REINTENTO[0] else 'el proveedor que elijas'}. "
+        "Los archivos completados no se vuelven a procesar."
+    )
+    if problemas_reintento:
+        st.warning("Para habilitar el reintento: " + "; ".join(problemas_reintento) + ".")
+    reintentar_click = st.button(
+        f"🔁 Reintentar {len(filas_error_destacadas)} archivo(s) con el proveedor seleccionado",
+        type="primary", use_container_width=True, disabled=bool(problemas_reintento),
+        key=f"reintentar_con_proveedor_{run_id_reintento_destacado}",
+    )
 
 lote_ejecutado_en_esta_corrida = False
 
@@ -4031,7 +4134,7 @@ if 'reintentar_click' in locals() and reintentar_click:
                 timeout_pdf_segundos=timeout_pdf_segundos,
                 timeout_opencode_segundos=timeout_opencode_segundos,
                 api_key_openrouter=(
-                    obtener_api_key_openrouter() if proveedor_ia == "OpenRouter" else None
+                    obtener_api_key_openrouter() if proveedor_reintento == "OpenRouter" else None
                 ),
                 permitir_pago_openrouter=(
                     proveedor_ia == "OpenRouter" and not modelo_gratuito(
@@ -4061,6 +4164,7 @@ if 'reintentar_click' in locals() and reintentar_click:
             with st.expander("Ver resultado combinado después del reintento", expanded=True):
                 renderizar_resultado_lote_guardado(resultado_combinado)
             lote_ejecutado_en_esta_corrida = True
+            reiniciar_app_streamlit()
         else:
             st.warning("No hay PDFs disponibles para reintentar.")
 
