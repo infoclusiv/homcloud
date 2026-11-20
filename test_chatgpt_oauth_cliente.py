@@ -145,7 +145,9 @@ class TestChatGPTOAuth(unittest.TestCase):
         self.assertIn("st.stop()", guard)
         self.assertIn("listar_modelos_chatgpt_oauth()", guard)
         self.assertNotIn("HOMCLOUD_CHATGPT_OAUTH_ACTAS", src)
-        self.assertIn('not consultar_activacion_actas()["ok"]', src)
+        self.assertIn('autorizacion_oauth_retry = (', src)
+        self.assertIn('consultar_activacion_actas().get("ok", False)', src)
+        self.assertIn('oauth_actas_autorizadas=autorizacion_oauth_retry', src)
 
     def test_modelo_malicioso_no_inicia_red(self):
         ans = o.ejecutar_chatgpt_oauth(
