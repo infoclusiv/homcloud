@@ -1746,6 +1746,7 @@ def reconstruir_resultado_lote_combinado(
         "resumen_csv_path": str(resumen_csv_path),
         "errores_csv_path": str(errores_csv_path) if errores_csv_path else "",
         "zip_ahk_path": str(zip_ahk_path) if zip_ahk_path else "",
+        "modelo_usado": resultado_reintento.get("modelo_usado", ""),
         "es_resultado_combinado": True,
         "metadata_combinada_path": str(metadata_combinada_path),
     }
@@ -4127,7 +4128,7 @@ if 'reintentar_click' in locals() and reintentar_click:
                 pdf_jobs=pdf_jobs_retry,
                 prompt_pregrado=prompt_pregrado,
                 prompt_posgrado=prompt_posgrado,
-                modelo_opencode=modelo_opencode,
+                modelo_opencode=modelo_reintento,
                 max_workers_opencode=concurrencia_reintento,
                 etiqueta_boton="Reintento de errores",
                 parent_run_id=run_id_anterior,
@@ -4137,9 +4138,8 @@ if 'reintentar_click' in locals() and reintentar_click:
                     obtener_api_key_openrouter() if proveedor_reintento == "OpenRouter" else None
                 ),
                 permitir_pago_openrouter=(
-                    proveedor_ia == "OpenRouter" and not modelo_gratuito(
-                        modelo_opencode.split("::", 1)[-1]
-                    ) and pago_ia_autorizado
+                    proveedor_reintento == "OpenRouter" and router_retry_pago
+                    and pago_reintento_autorizado
                 ),
             )
 
