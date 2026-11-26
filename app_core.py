@@ -1138,49 +1138,32 @@ def detectar_condicion_parada_opencode(respuesta: str) -> str | None:
     return " | ".join(lineas_relevantes)
 
 def crear_zip_ahk(run_outputs_dir: Path, filas: list | None = None):
-    """
-    Crea un ZIP solamente con los AHK finales registrados en la tabla.
-    No incluye temporales generados por OpenCode.
-    """
-    ahk_files = []
+    """Persiste un ZIP solo para varios AHK finales."""
+    from recuperacion_lotes import archivos_ahk_validos, guardar_zip_ahk_si_multiple
 
-    if filas:
-        for fila in filas:
-            ruta = fila.get("Archivo AHK")
-            if not ruta or ruta == "No generado":
-                continue
+    archivos = archivos_ahk_validos(filas or [], BASE_DIR)
+    return guardar_zip_ahk_si_multiple(run_outputs_dir, archivos), archivos
 
-            archivo = Path(ruta)
 
-            if archivo.exists() and archivo.is_file():
-                ahk_files.append(archivo)
-    else:
-        ahk_files = sorted(
-            p for p in run_outputs_dir.glob("*.ahk")
-            if (
-                p.is_file()
-                and p.name.lower() not in {"homologacion.ahk", "script_homologacion.ahk"}
-                and not p.name.lower().endswith("_script.ahk")
-            )
-        )
+def renderizar_descarga_ahk(filas: list[dict], key: str) -> bool:
+    """Elige el formato a partir de los scripts válidos, no del tamaño del lote."""
+    from recuperacion_lotes import descarga_ahk_bytes
 
-    ahk_files = sorted(set(ahk_files), key=lambda p: p.name.lower())
+    descarga = descarga_ahk_bytes(filas, BASE_DIR)
+    if descarga is None:
+        return False
+    datos, nombre, mime, cantidad = descarga
+    st.download_button(
+        label=("⬇️ Descargar archivo AHK" if cantidad == 1
+               else f"⬇️ Descargar {cantidad} scripts AHK (ZIP)"),
+        data=datos,
+        file_name=nombre,
+        mime=mime,
+        key=key,
+        use_container_width=True,
+    )
+    return True
 
-    if not ahk_files:
-        return None, []
-
-    zip_path = run_outputs_dir / "scripts_ahk.zip"
-
-    temporal = zip_path.with_name(zip_path.name + ".tmp")
-    try:
-        with zipfile.ZipFile(temporal, "w", zipfile.ZIP_DEFLATED) as zipf:
-            for ahk_file in ahk_files:
-                zipf.write(ahk_file, arcname=ahk_file.name)
-        os.replace(temporal, zip_path)
-    finally:
-        temporal.unlink(missing_ok=True)
-
-    return zip_path, ahk_files
 
 def formatear_duracion(segundos: float | int | None) -> str:
     """
@@ -2440,19 +2423,10 @@ def ejecutar_lote_streamlit(
                 key=f"download_error_csv_{run_id}",
             )
 
-    if zip_ahk_path and zip_ahk_path.exists():
-        with open(zip_ahk_path, "rb") as f:
-            st.download_button(
-                label=f"⬇️ Descargar scripts AHK en ZIP ({len(archivos_ahk)})",
-                data=f,
-                file_name="scripts_ahk.zip",
-                mime="application/zip",
-                key=f"download_zip_{run_id}",
-            )
-
+    if not renderizar_descarga_ahk(filas, key=f"download_ahk_{run_id}"):
+        st.warning("No se generaron archivos AHK disponibles para descargar.")
+    elif zip_ahk_path:
         st.write(f"**ZIP AHK generado:** `{zip_ahk_path}`")
-    else:
-        st.warning("No se generaron archivos AHK en este lote, por eso no hay ZIP para descargar.")
 
     st.write(f"**Prompt Pregrado:** `{prompt_pregrado_path}`")
     st.write(f"**Prompt Posgrado:** `{prompt_posgrado_path}`")
@@ -2613,16 +2587,8 @@ def renderizar_resultado_lote_guardado(resultado_lote: dict | None) -> None:
             st.caption("No hay CSV de errores porque no hubo errores reintentables.")
 
     with col_down_3:
-        if zip_ahk_path:
-            boton_descarga_archivo(
-                zip_ahk_path,
-                "⬇️ Descargar scripts AHK en ZIP",
-                "scripts_ahk.zip",
-                "application/zip",
-                "zip_ahk",
-            )
-        else:
-            st.caption("No hay ZIP AHK porque no se generaron scripts en este lote.")
+        if not renderizar_descarga_ahk(filas, key=f"persistente_ahk_{run_id}"):
+            st.caption("No hay scripts AHK disponibles para descargar.")
 
     st.write(f"**Carpeta completa del lote:** `{run_outputs_dir}`")
     st.write(f"**CSV generado:** `{resumen_csv_path}`")
@@ -3831,24 +3797,13 @@ with st.container():
         if resumen["run_id"]:
             st.caption(f"Último lote disponible: `{resumen['run_id']}`")
 
-        zip_ahk_path_panel = resumen.get("zip_ahk_path") or ""
-        if zip_ahk_path_panel:
-            path_zip_panel = Path(zip_ahk_path_panel)
-            if path_zip_panel.exists() and path_zip_panel.is_file():
-                with open(path_zip_panel, "rb") as f:
-                    st.download_button(
-                        label="⬇️ Descargar ZIP AHK",
-                        data=f,
-                        file_name="scripts_ahk.zip",
-                        mime="application/zip",
-                        use_container_width=True,
-                        key=f"descarga_zip_panel_{resumen['run_id'] or 'sin_run'}",
-                    )
-            else:
-                st.caption("El ZIP AHK del último lote ya no está disponible en disco.")
-        else:
-            st.button("⬇️ Descargar ZIP AHK", disabled=True, use_container_width=True, key="zip_ahk_deshabilitado_panel")
-            st.caption("El ZIP se habilitará cuando exista un lote con AHK generados.")
+        if not renderizar_descarga_ahk(
+            (ultimo_lote or {}).get("filas") or [],
+            key=f"descarga_ahk_panel_{resumen['run_id'] or 'sin_run'}",
+        ):
+            st.button("⬇️ Descargar AHK", disabled=True, use_container_width=True,
+                      key="ahk_deshabilitado_panel")
+            st.caption("La descarga se habilitará cuando exista un AHK generado.")
 
         filas_error_panel = (ultimo_lote or {}).get("filas_error", []) if ultimo_lote else []
         if filas_error_panel:
