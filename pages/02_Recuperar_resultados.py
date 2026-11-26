@@ -9,7 +9,7 @@ from recuperacion_lotes import (
     csv_recuperado_bytes,
     listar_lotes,
     recuperar_lote,
-    zip_recuperado_bytes,
+    descarga_ahk_bytes,
 )
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -61,7 +61,7 @@ if filas:
         st.caption("La vista muestra 300 filas como máximo; el CSV descargado incluye todas.")
 
     csv_bytes = csv_recuperado_bytes(filas)
-    zip_bytes, num_ahk = zip_recuperado_bytes(filas, BASE_DIR)
+    descarga = descarga_ahk_bytes(filas, BASE_DIR, f"{run_id}_scripts_recuperados.zip")
     col_csv, col_zip = st.columns(2)
     with col_csv:
         st.download_button(
@@ -72,12 +72,14 @@ if filas:
             use_container_width=True,
         )
     with col_zip:
-        if num_ahk:
+        if descarga:
+            datos, nombre, mime, num_ahk = descarga
             st.download_button(
-                f"⬇️ Descargar {num_ahk} AHK recuperados (ZIP)",
-                data=zip_bytes,
-                file_name=f"{run_id}_scripts_recuperados.zip",
-                mime="application/zip",
+                "⬇️ Descargar archivo AHK recuperado" if num_ahk == 1
+                else f"⬇️ Descargar {num_ahk} AHK recuperados (ZIP)",
+                data=datos,
+                file_name=nombre,
+                mime=mime,
                 use_container_width=True,
             )
         else:

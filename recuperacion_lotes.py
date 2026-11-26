@@ -142,35 +142,87 @@ def csv_recuperado_bytes(filas: list[dict]) -> bytes:
     return ("\ufeff" + salida.getvalue()).encode("utf-8")
 
 
-def zip_recuperado_bytes(filas: list[dict], base_dir: Path) -> tuple[bytes, int]:
-    """Reconstruye un ZIP desde AHK verificados de este directorio de trabajo."""
+def archivos_ahk_validos(filas: list[dict], base_dir: Path) -> list[Path]:
+    """Devuelve solo scripts completados, existentes y dentro de outputs/runs."""
     raiz = (base_dir / "outputs" / "runs").resolve()
-    salida = io.BytesIO()
     usados = set()
+    archivos = []
+    for fila in filas:
+        if str(fila.get("Estado") or "").casefold() != "completado":
+            continue
+        ruta_str = str(fila.get("Archivo AHK") or "").strip()
+        if not ruta_str or ruta_str == "No generado":
+            continue
+        ruta = Path(ruta_str)
+        if not ruta.is_absolute():
+            ruta = base_dir / ruta
+        if ruta.is_symlink() or ruta.suffix.casefold() != ".ahk":
+            continue
+        try:
+            resuelta = ruta.resolve(strict=True)
+            if not resuelta.is_relative_to(raiz) or not resuelta.is_file():
+                continue
+            nombre = resuelta.name.casefold()
+            if nombre in usados:
+                continue
+            archivos.append(resuelta)
+            usados.add(nombre)
+        except (OSError, RuntimeError):
+            continue
+    return archivos
+
+
+def zip_recuperado_bytes(filas: list[dict], base_dir: Path) -> tuple[bytes, int]:
+    """Compatibilidad con consumidores que solicitan expresamente un ZIP."""
+    salida = io.BytesIO()
     total = 0
     with zipfile.ZipFile(salida, "w", zipfile.ZIP_DEFLATED) as zipf:
-        for fila in filas:
-            if not str(fila.get("Estado") or "").casefold() == "completado":
-                continue
-            ruta_str = str(fila.get("Archivo AHK") or "").strip()
-            if not ruta_str or ruta_str == "No generado":
-                continue
-            ruta = Path(ruta_str)
-            # Rutas relativas pueden venir de versiones antiguas.
-            if not ruta.is_absolute():
-                ruta = base_dir / ruta
-            if ruta.is_symlink() or ruta.suffix.casefold() != ".ahk":
-                continue
+        for archivo in archivos_ahk_validos(filas, base_dir):
             try:
-                resuelta = ruta.resolve(strict=True)
-                if not resuelta.is_relative_to(raiz) or not resuelta.is_file():
-                    continue
-                nombre = resuelta.name
-                if nombre.casefold() in usados:
-                    continue
-                zipf.write(resuelta, arcname=nombre)
-                usados.add(nombre.casefold())
+                zipf.write(archivo, arcname=archivo.name)
                 total += 1
             except OSError:
                 continue
     return salida.getvalue(), total
+
+
+def descarga_ahk_bytes(
+    filas: list[dict], base_dir: Path, nombre_zip: str = "scripts_ahk.zip"
+) -> tuple[bytes, str, str, int] | None:
+    """Un AHK se entrega sin comprimir; varios se agrupan en un ZIP."""
+    contenidos = []
+    for archivo in archivos_ahk_validos(filas, base_dir):
+        try:
+            contenidos.append((archivo.name, archivo.read_bytes()))
+        except OSError:
+            continue
+    if not contenidos:
+        return None
+    if len(contenidos) == 1:
+        nombre, datos = contenidos[0]
+        return datos, nombre, "application/octet-stream", 1
+
+    salida = io.BytesIO()
+    with zipfile.ZipFile(salida, "w", zipfile.ZIP_DEFLATED) as zipf:
+        for nombre, datos in contenidos:
+            zipf.writestr(nombre, datos)
+    return salida.getvalue(), nombre_zip, "application/zip", len(contenidos)
+
+
+def guardar_zip_ahk_si_multiple(
+    run_outputs_dir: Path, archivos: list[Path]
+) -> Path | None:
+    """Persiste el ZIP solo si hay más de un script; elimina ZIP obsoleto."""
+    zip_path = run_outputs_dir / "scripts_ahk.zip"
+    if len(archivos) <= 1:
+        zip_path.unlink(missing_ok=True)
+        return None
+    temporal = zip_path.with_name(zip_path.name + ".tmp")
+    try:
+        with zipfile.ZipFile(temporal, "w", zipfile.ZIP_DEFLATED) as zipf:
+            for archivo in archivos:
+                zipf.write(archivo, arcname=archivo.name)
+        temporal.replace(zip_path)
+    finally:
+        temporal.unlink(missing_ok=True)
+    return zip_path

@@ -9,10 +9,13 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import time
 import unittest
+from unittest.mock import patch
 import zipfile
 
 from recuperacion_lotes import (
     csv_recuperado_bytes,
+    descarga_ahk_bytes,
+    guardar_zip_ahk_si_multiple,
     listar_lotes,
     recuperar_lote,
     validar_run_id,
@@ -104,6 +107,59 @@ class RecuperacionTests(unittest.TestCase):
             self.assertEqual(total, 0)
             with zipfile.ZipFile(io.BytesIO(contenido)) as z:
                 self.assertFalse(z.namelist())
+
+
+class DescargaAHKTests(unittest.TestCase):
+    def test_unico_ahk_conserva_nombre_y_bytes_sin_comprimir(self):
+        with TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            out = base / "outputs" / "runs" / "lote123"
+            out.mkdir(parents=True)
+            ahk = out / "Acta estudiante.ahk"
+            datos = b"\xef\xbb\xbfMsgBox, Hola\r\n"
+            ahk.write_bytes(datos)
+            filas = [
+                {"Estado": "Completado", "Archivo AHK": str(ahk)},
+                {"Estado": "Error OpenCode", "Archivo AHK": "No generado"},
+            ]
+            with patch("recuperacion_lotes.zipfile.ZipFile", side_effect=AssertionError("No comprimir")):
+                self.assertEqual(descarga_ahk_bytes(filas, base),
+                                 (datos, ahk.name, "application/octet-stream", 1))
+                self.assertIsNone(guardar_zip_ahk_si_multiple(out, [ahk]))
+            self.assertFalse((out / "scripts_ahk.zip").exists())
+
+    def test_varios_ahk_incluye_lote_anterior_y_reintento(self):
+        with TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            padre = base / "outputs" / "runs" / "padre123"
+            hijo = base / "outputs" / "runs" / "hijo123"
+            padre.mkdir(parents=True)
+            hijo.mkdir(parents=True)
+            a, b = padre / "A.ahk", hijo / "B.ahk"
+            a.write_bytes(b"A")
+            b.write_bytes(b"B")
+            filas = [{"Estado": "Completado", "Archivo AHK": str(p)} for p in (a, b)]
+            datos, nombre, mime, cantidad = descarga_ahk_bytes(filas, base)
+            self.assertEqual((nombre, mime, cantidad), ("scripts_ahk.zip", "application/zip", 2))
+            with zipfile.ZipFile(io.BytesIO(datos)) as z:
+                self.assertEqual(set(z.namelist()), {"A.ahk", "B.ahk"})
+                self.assertEqual(z.read("A.ahk"), b"A")
+                self.assertEqual(z.read("B.ahk"), b"B")
+            ruta_zip = guardar_zip_ahk_si_multiple(hijo, [a, b])
+            self.assertTrue(ruta_zip.is_file())
+            self.assertIsNone(guardar_zip_ahk_si_multiple(hijo, [b]))
+            self.assertFalse(ruta_zip.exists())
+
+    def test_sin_scripts_validos_no_habilita_descarga(self):
+        with TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            fuera = base / "fuera.ahk"
+            fuera.write_bytes(b"privado")
+            self.assertIsNone(descarga_ahk_bytes([
+                {"Estado": "Completado", "Archivo AHK": str(fuera)},
+                {"Estado": "Completado", "Archivo AHK": "inexistente.ahk"},
+                {"Estado": "Error OpenCode", "Archivo AHK": "No generado"},
+            ], base))
 
 
 class RetencionSeguraTests(unittest.TestCase):
